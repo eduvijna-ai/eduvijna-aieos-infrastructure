@@ -82,3 +82,5 @@ calculation covering every resource in that apply plus retained estate.
 - [REMOTE-STATE-BOOTSTRAP.md](docs/REMOTE-STATE-BOOTSTRAP.md)
 - [SECRETS-AND-AUTHORITY.md](docs/SECRETS-AND-AUTHORITY.md)
 - [PROVISIONING-RUNBOOK.md](docs/PROVISIONING-RUNBOOK.md)
+- [NATS-PRODUCTION-EVENT-PLANE.md](docs/NATS-PRODUCTION-EVENT-PLANE.md) — ADR-AIEOS-046 source contract (no production provisioning)
+- [contracts/nats/production-event-plane.yaml](contracts/nats/production-event-plane.yaml) — machine-readable event-plane freeze

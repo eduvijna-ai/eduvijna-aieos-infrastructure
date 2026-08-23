@@ -1,1 +1,3 @@
 scripts/postgresql/** text eol=lf
+scripts/nats/** text eol=lf
+scripts/guard.sh text eol=lf

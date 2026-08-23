@@ -22,6 +22,8 @@ override.tf.json
 *.key
 *.p12
 *.pfx
+*.creds
+*.nk
 .env
 .env.*
 !.env.example
