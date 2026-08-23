@@ -76,6 +76,7 @@ jobs:
           fi
 
       - name: Validate Temporal Cloud provisioning-source static proofs
+        working-directory: .
         run: bash scripts/temporal/validate-provisioning-source.sh
 
       - name: Disposable disabled Temporal provider plan proof (WPI-I01R1)
@@ -157,6 +158,11 @@ jobs:
 
       - name: Secret / apply / local-state guards
         run: bash scripts/guard.sh
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.12.5
 
       - name: Validate production Temporal workflow-plane contract exactness
         run: bash scripts/temporal/validate-contract.sh
