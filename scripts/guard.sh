@@ -43,6 +43,23 @@ if grep -RInE --exclude-dir='.git' --exclude-dir='.terraform' \
   fail "possible committed NATS JWT or NKey seed material"
 fi
 
+# Disallow committed Temporal API key value assignments (env NAMES alone are allowed)
+if grep -RInE --exclude-dir='.git' --exclude-dir='.terraform' \
+  --exclude='guard.sh' --exclude='validate-contract.sh' \
+  'AIEOS_(WORKFLOW_DISPATCHER_)?TEMPORAL_API_KEY[[:space:]]*=[[:space:]]*["'\'']?[A-Za-z0-9+/=._-]{20,}' \
+  --include='*.yml' --include='*.yaml' --include='*.tf' --include='*.tfvars' \
+  --include='*.env' --include='*.json' --include='*.txt' --include='*.properties' \
+  .; then
+  fail "possible committed Temporal API key value assignment"
+fi
+
+# Disallow committed Temporal credential dump filenames
+if find . -type f \( \
+  -name '*.temporal.key' -o -name 'temporal-api-key*' -o -name '*temporal*creds*' \
+  \) ! -path './.git/*' | grep -q .; then
+  fail "committed Temporal credential dump files are forbidden"
+fi
+
 # Disallow production remote init without -backend=false in CI
 if grep -RIn --include='*.yml' --include='*.yaml' --exclude-dir='.git' 'tofu init' .github \
   | grep -v '\-backend=false' | grep -q .; then

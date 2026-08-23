@@ -127,3 +127,18 @@ jobs:
 
       - name: Disposable JWT+NKey ACL proof (nats-server 2.14.3)
         run: bash scripts/nats/ci-test-event-plane.sh
+
+  temporal-production-workflow-plane:
+    name: temporal-production-workflow-plane
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Secret / apply / local-state guards
+        run: bash scripts/guard.sh
+
+      - name: Validate production Temporal workflow-plane contract exactness
+        run: bash scripts/temporal/validate-contract.sh

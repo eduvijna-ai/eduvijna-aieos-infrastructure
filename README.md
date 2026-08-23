@@ -12,7 +12,7 @@ definitions do **not** live in `eduvijna-aieos-backend` or
 
 | Concern | Status |
 | --- | --- |
-| Architecture frozen | Yes (ADR-AIEOS-037/038R1/039/040R1/041/041R1/042/043/044/044R1/044R2) |
+| Architecture frozen | Yes (ADR-AIEOS-037/038R1/039/040R1/041/041R1/042/043/044/044R1/044R2/046/047) |
 | Implementation modeled | Yes (Bootstrap AIStor + VPC/project/network) |
 | Production state bucket bootstrap | **COMPLETE** (`eduvijna-aieos-tofu-state-prod-sfo3` / SFO3) |
 | Production remote backend initialized | **Yes** (Stage 2) |
@@ -84,3 +84,5 @@ calculation covering every resource in that apply plus retained estate.
 - [PROVISIONING-RUNBOOK.md](docs/PROVISIONING-RUNBOOK.md)
 - [NATS-PRODUCTION-EVENT-PLANE.md](docs/NATS-PRODUCTION-EVENT-PLANE.md) — ADR-AIEOS-046 source contract (no production provisioning)
 - [contracts/nats/production-event-plane.yaml](contracts/nats/production-event-plane.yaml) — machine-readable event-plane freeze
+- [TEMPORAL-PRODUCTION-WORKFLOW-PLANE.md](docs/TEMPORAL-PRODUCTION-WORKFLOW-PLANE.md) — ADR-AIEOS-047 source contract (no Temporal Cloud provisioning)
+- [contracts/temporal/production-workflow-plane.yaml](contracts/temporal/production-workflow-plane.yaml) — machine-readable workflow-plane freeze
