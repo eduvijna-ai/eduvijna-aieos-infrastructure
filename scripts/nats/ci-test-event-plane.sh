@@ -47,6 +47,10 @@ require_cmd git
 HAS_PYTHON3=0
 if command -v python3 >/dev/null 2>&1; then
   HAS_PYTHON3=1
+elif command -v py >/dev/null 2>&1 && py -3 -c 'import sys' >/dev/null 2>&1; then
+  # Windows local launcher; CI uses python3 directly
+  python3() { py -3 "$@"; }
+  HAS_PYTHON3=1
 fi
 
 bash "${ROOT}/scripts/nats/validate-contract.sh"
@@ -212,84 +216,131 @@ else
   record 8 FAIL "streamadmin could not create/inspect stream"
 fi
 
-# P10 — subjects exact
-INFO_JSON="$(js_admin stream info "$STREAM_NAME" --json 2>/dev/null || echo '{}')"
+# P10 — subjects exact: list must equal ["io.eduvijna.aieos.>"] only
+INFO_JSON="$(js_admin stream info "$STREAM_NAME" --json 2>/dev/null || true)"
 P10_OK=0
+P10_PARSED=""
+P10_ERR="${WORKDIR}/p10.err"
+: > "$P10_ERR"
 if [[ "$HAS_PYTHON3" -eq 1 ]]; then
-  if echo "$INFO_JSON" | python3 -c '
-import json,sys
-d=json.load(sys.stdin)
-blob=json.dumps(d)
-subjects=[]
-for path in (("config","subjects"),("Config","Subjects")):
-  cur=d
-  ok=True
-  for k in path:
-    if not isinstance(cur, dict) or k not in cur:
-      ok=False
-      break
-    cur=cur[k]
-  if ok and isinstance(cur, list):
-    subjects=cu
-    break
-if not subjects:
-  sys.exit(0 if ("io.eduvijna.aieos.>" in blob and "aieos.event.v1.>" not in blob) else 1)
-sys.exit(0 if ("io.eduvijna.aieos.>" in subjects and "aieos.event.v1.>" not in subjects) else 1)
-'; then
+  set +e
+  P10_PARSED="$(printf '%s' "$INFO_JSON" | python3 -c '
+import json, sys
+EXPECTED = ["io.eduvijna.aieos.>"]
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception as e:
+    print("P10_PARSE_ERROR:" + type(e).__name__ + ":" + str(e), file=sys.stderr)
+    sys.exit(2)
+subjects = None
+for path in (("config", "subjects"), ("Config", "Subjects")):
+    cur = d
+    ok = True
+    for k in path:
+        if not isinstance(cur, dict) or k not in cur:
+            ok = False
+            break
+        cur = cur[k]
+    if ok and isinstance(cur, list):
+        subjects = cur
+        break
+if subjects is None:
+    print("P10_PARSE_ERROR:subjects_missing", file=sys.stderr)
+    sys.exit(2)
+print("SUBJECTS_EXACT:" + json.dumps(subjects, separators=(",", ":")))
+if subjects != EXPECTED:
+    sys.exit(1)
+sys.exit(0)
+' 2>>"$P10_ERR")"
+  P10_RC=$?
+  set -e
+  if [[ "$P10_RC" -eq 0 ]]; then
     P10_OK=1
+  else
+    # Python available: any parser/assertion failure is hard FAIL (no substring fallback)
+    P10_OK=0
+    if grep -qiE 'Traceback|NameError|P10_PARSE_ERROR' "$P10_ERR" 2>/dev/null; then
+      echo "P10 structured parser failure:" >&2
+      cat "$P10_ERR" >&2 || true
+    fi
   fi
-fi
-if [[ "$P10_OK" -eq 0 ]]; then
-  INFO_TEXT="$(js_admin stream info "$STREAM_NAME" 2>/dev/null || true)"
-  if echo "$INFO_TEXT" | grep -F 'io.eduvijna.aieos.>' >/dev/null \
-    && ! echo "$INFO_TEXT" | grep -F 'aieos.event.v1.>' >/dev/null; then
+elif command -v jq >/dev/null 2>&1; then
+  # Fallback only when Python runtime is unavailable: jq exact equality
+  if printf '%s' "$INFO_JSON" | jq -e '
+      ((.config.subjects // .Config.Subjects // null) == ["io.eduvijna.aieos.>"])
+    ' >/dev/null 2>>"$P10_ERR"; then
+    P10_PARSED='SUBJECTS_EXACT:["io.eduvijna.aieos.>"]'
     P10_OK=1
+  else
+    P10_OK=0
   fi
+else
+  echo "P10 FAIL — no structured JSON parser available (python3/jq)" >&2
+  P10_OK=0
 fi
 if [[ "$P10_OK" -eq 1 ]]; then
-  record 10 PASS "stream subjects exact io.eduvijna.aieos.> (no aieos.event.v1.>)"
+  record 10 PASS "stream subjects exact ${P10_PARSED:-SUBJECTS_EXACT:[\"io.eduvijna.aieos.>\"]}"
 else
-  record 10 FAIL "stream subjects not exact"
+  record 10 FAIL "stream subjects not exactly [\"io.eduvijna.aieos.>\"]"
 fi
+
+
+# JetStream PubAck via request/reply on EVENT identity (PUB content.> + SUB _INBOX.>)
+# Server responds with PubAck when subject is bound to a stream; no $JS.API admin required.
+publish_js_ack() {
+  local subject="$1"
+  local out_file="$2"
+  local err_file="$3"
+  : > "$out_file"
+  : > "$err_file"
+  # nats request publishes with reply inbox and waits for JetStream PubAck
+  "$NATS_CLI" --server="$SERVER" --creds="$EVENT_CREDS" \
+    request --timeout=5s "$subject" "epi-sf01-proof" >"$out_file" 2>"$err_file"
+}
+
+verify_puback_stream() {
+  local ack_file="$1"
+  local expected_stream="$2"
+  # PubAck JSON contains "stream":"<name>"; accept whitespace variants; never log creds
+  if grep -E "\"stream\"[[:space:]]*:[[:space:]]*\"${expected_stream}\"" "$ack_file" >/dev/null 2>&1; then
+    return 0
+  fi
+  if grep -F "\"stream\":\"${expected_stream}\"" "$ack_file" >/dev/null 2>&1; then
+    return 0
+  fi
+  if grep -F "stream: ${expected_stream}" "$ack_file" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
 
 publish_core() {
   local subject="$1" creds="$2"
   "$NATS_CLI" --server="$SERVER" --creds="$creds" pub "$subject" "epi-sf01-proof" >/dev/null 2>"${WORKDIR}/last.err"
 }
 
-stream_has_subject_msg() {
-  local subject="$1"
-  local out
-  out="$(js_admin stream view "$STREAM_NAME" --last-for="$subject" 2>/dev/null || true)"
-  if [[ -z "$out" ]]; then
-    out="$(js_admin stream get "$STREAM_NAME" --last-for="$subject" 2>/dev/null || true)"
-  fi
-  echo "$out" | grep -q 'epi-sf01-proof'
-}
-
-# P1 — authorized Content publish (core pub into JetStream-bound subject + streamadmin verify)
-if publish_core "io.eduvijna.aieos.content.content.published.v1" "$EVENT_CREDS" \
-  && stream_has_subject_msg "io.eduvijna.aieos.content.content.published.v1"; then
-  record 1 PASS "authorized Content publish succeeded with stream acknowledgement"
-else
-  # Fallback: stream info message count increased path
-  if publish_core "io.eduvijna.aieos.content.content.published.v1" "$EVENT_CREDS"; then
-    INFO_TXT="$(js_admin stream info "$STREAM_NAME" 2>/dev/null || true)"
-    if echo "$INFO_TXT" | grep -qiE 'messages|Messages'; then
-      record 1 PASS "authorized Content publish succeeded with stream acknowledgement"
-    else
-      record 1 FAIL "authorized Content publish denied/failed"
-    fi
+# P1 — EVENT publisher JetStream publish acknowledgement for Content subject
+P1_OUT="${WORKDIR}/p1.ack.out"
+P1_ERR="${WORKDIR}/p1.ack.err"
+if publish_js_ack "io.eduvijna.aieos.content.content.published.v1" "$P1_OUT" "$P1_ERR"; then
+  if verify_puback_stream "$P1_OUT" "$STREAM_NAME"; then
+    record 1 PASS "authorized Content JetStream PubAck stream=${STREAM_NAME}"
   else
-    record 1 FAIL "authorized Content publish denied/failed"
+    record 1 FAIL "JetStream PubAck missing or wrong stream (expected ${STREAM_NAME})"
   fi
+else
+  record 1 FAIL "authorized Content JetStream publish ACK failed (timeout/permission/error)"
 fi
 
-# P2
-if publish_core "io.eduvijna.aieos.content.content.created.v1" "$EVENT_CREDS"; then
-  record 2 PASS "second Content subject publish succeeded"
+# P2 — second Content subject (JetStream ACK path)
+P2_OUT="${WORKDIR}/p2.ack.out"
+P2_ERR="${WORKDIR}/p2.ack.err"
+if publish_js_ack "io.eduvijna.aieos.content.content.created.v1" "$P2_OUT" "$P2_ERR" \
+  && verify_puback_stream "$P2_OUT" "$STREAM_NAME"; then
+  record 2 PASS "second Content subject JetStream PubAck succeeded"
 else
-  record 2 FAIL "second Content subject publish failed"
+  record 2 FAIL "second Content subject publish/ACK failed"
 fi
 
 # P3
@@ -305,6 +356,7 @@ if publish_core "foo.bar" "$EVENT_CREDS"; then
 else
   record 4 PASS "outside-AIEOS publish denied"
 fi
+
 
 # P5 — inbox subscribe (bounded wait; never hang the proof)
 ERR5=""
