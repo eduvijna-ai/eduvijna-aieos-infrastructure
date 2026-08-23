@@ -18,6 +18,9 @@ committed to Git, or documentation.
 | Database administration credential | PostgreSQL deployment identity bootstrap / JIT membership / role verification | API runtime, migrator routine use, dispatcher, Temporal, App Platform workload |
 | NATS EVENT publisher `.creds` | Production EVENT dispatcher broker auth (JWT+NKey) | Committed; streamadmin; unrelated workloads; disk file as production authority |
 | NATS `streamadmin` | Governed stream create/verify/maintenance only | EVENT/API/WORKFLOW runtime injection |
+| Temporal WORKFLOW_DISPATCHER API key | Production WORKFLOW dispatcher Temporal Cloud data-plane auth | Worker key; Cloud Ops / Namespace Admin; EVENT/API/DB identities; committed values |
+| Temporal TEMPORAL_WORKER API key | Production Temporal worker Temporal Cloud data-plane auth | Dispatcher key; Cloud Ops / Namespace Admin; EVENT/API/DB identities; committed values |
+| Temporal provisioning / control-plane authority | Namespace / service-account / API-key / Cloud Ops administration | Injected into App Platform / WORKFLOW_DISPATCHER / TEMPORAL_WORKER runtime |
 
 ## Database administration credential (ADR-AIEOS-045)
 
@@ -54,6 +57,35 @@ Source repositories and CI must contain **zero** production seeds, user JWTs, or
 files. CI may generate ephemeral disposable credentials outside the repository tree only.
 
 See [NATS-PRODUCTION-EVENT-PLANE.md](NATS-PRODUCTION-EVENT-PLANE.md).
+
+## Temporal workflow-plane credentials (ADR-AIEOS-047 / WPI-SF01-B)
+
+Two distinct production Temporal Cloud Service Account + API key identities:
+
+| Workload | Secret env name | Must not be |
+| --- | --- | --- |
+| WORKFLOW_DISPATCHER | `AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_API_KEY` | Worker key; Cloud Ops / Namespace Admin credential; committed value |
+| TEMPORAL_WORKER | `AIEOS_TEMPORAL_API_KEY` | Dispatcher key; Cloud Ops / Namespace Admin credential; committed value |
+
+Dispatcher key **must not** be the worker key. Worker key **must not** be the dispatcher key.
+Neither runtime receives Temporal Cloud account / Namespace administration credentials.
+Provisioning / control-plane authority must **never** be injected into application runtime.
+
+Non-secret configuration env names (exact production values are provisioning outputs, not
+source constants):
+
+```text
+AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_TARGET_HOST
+AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_NAMESPACE
+AIEOS_TEMPORAL_TARGET_HOST
+AIEOS_TEMPORAL_NAMESPACE
+```
+
+No Temporal production secret values may appear in Git, OpenTofu, documentation, CI logs,
+`.tfvars`, committed plans, or `.env` files. Environment-variable **names**, documentation
+placeholders, contract property names, and validation detection patterns are allowed.
+
+See [TEMPORAL-PRODUCTION-WORKFLOW-PLANE.md](TEMPORAL-PRODUCTION-WORKFLOW-PLANE.md).
 
 ## Ordinary runtime IAM (documentation)
 

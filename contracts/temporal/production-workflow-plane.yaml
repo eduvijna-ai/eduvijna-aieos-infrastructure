@@ -1,0 +1,238 @@
+# WPI-SF01-B production Temporal workflow-plane contract
+# Authority: ADR-AIEOS-047 (Architecture origin/main 5dec3214ddf170ac7e07096b8eca1d2aad2b9109)
+# This file freezes source contract only — it does NOT authorize Temporal Cloud provisioning.
+# No API keys, service-account credentials, account tokens, endpoints, or Namespace IDs belong here.
+#
+# Infrastructure source contract
+# !=
+# Temporal Cloud provisioning authorization
+
+schema_version: "1"
+authority: ADR-AIEOS-047
+environment: production
+
+provider: temporal_cloud
+
+hosting:
+  first_production: true
+
+connection:
+  endpoint_mode: namespace_endpoint
+  exact_endpoint_from_provisioning: true
+  tls_required: true
+  certificate_verification_required: true
+  plaintext_fallback_allowed: false
+
+namespace:
+  environment_isolated: true
+  per_tenant_namespace: false
+  per_tenant_task_queue: false
+  exact_namespace_from_provisioning: true
+
+governed_content_review:
+  workflow_type: ContentReviewWorkflowV1
+  task_queue: aieos.content.review
+  signal: review_decision_recorded
+
+provider_rbac:
+  stable_builtin_roles_only: true
+  account_role: READ
+  target_namespace_role: WRITE
+  namespace_admin: false
+  account_admin: false
+  account_owner: false
+  account_developer: false
+  custom_roles_required: false
+  # ADR-AIEOS-047 freeze-time evidence: Temporal Cloud Custom Roles were Pre-Release.
+  # Custom Roles are NOT first-production authority and must not become a production dependency
+  # without a later governed architecture revision.
+  custom_roles_pre_release_at_adr047_freeze: true
+  # Provider Namespace Write may be broader than the AIEOS application operation fence.
+  # Broader provider RBAC does NOT broaden AIEOS source authority.
+  provider_namespace_write_broader_than_application_fence: true
+  application_operation_fence_controls_source_authority: true
+
+secret_delivery:
+  channel: authorized_encrypted_runtime_environment_secret
+  app_platform_encrypted_env_when_deployment_authorized: true
+  no_secret_values_in_infrastructure_source: true
+
+provisioning_outputs_not_source_constants:
+  - exact_service_account_ids
+  - exact_api_key_values
+  - exact_generated_namespace_endpoint
+  - exact_production_namespace_identifier
+
+identities:
+  WORKFLOW_DISPATCHER:
+    authentication: service_account_api_key
+    separate_service_account_from_worker: true
+    separate_api_key_from_worker: true
+    account_role: READ
+    namespace_role: WRITE
+    namespace_admin: false
+    cloud_ops_admin: false
+    worker_task_polling: false
+    env:
+      target_host_env: AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_TARGET_HOST
+      namespace_env: AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_NAMESPACE
+      api_key_env: AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_API_KEY
+      connect_timeout_env: AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_CONNECT_TIMEOUT_SECONDS
+    api_key_env_is_secret: true
+    target_host_and_namespace_are_configuration_not_source_constants: true
+    allowed_operations:
+      - start_governed_ContentReviewWorkflowV1_on_aieos.content.review
+      - describe_identified_governed_workflow_execution
+      - read_fetch_workflow_history_for_reconciliation
+      - signal_review_decision_recorded
+      - wait_read_result_history_for_command_delivery_reconciliation
+      - normal_sdk_metadata_protocol_calls_strictly_necessary_for_above
+    forbidden_operations:
+      - worker_workflow_task_polling
+      - worker_activity_task_polling
+      - worker_task_completion_failure
+      - namespace_create_update_delete
+      - temporal_account_administration
+      - service_account_administration
+      - api_key_administration
+      - cloud_ops_api
+      - arbitrary_workflow_types
+      - arbitrary_task_queues
+      - arbitrary_signals
+      - terminate
+      - cancel
+      - reset
+      - batch_operations
+      - schedule_administration
+      - search_attribute_administration
+      - nexus_administration
+      - connectivity_rule_administration
+      - ha_failover_administration
+      - retention_administration
+      - namespace_configuration_mutation
+
+  TEMPORAL_WORKER:
+    authentication: service_account_api_key
+    separate_service_account_from_dispatcher: true
+    separate_api_key_from_dispatcher: true
+    account_role: READ
+    namespace_role: WRITE
+    cloud_ops_admin: false
+    governed_task_queue: aieos.content.review
+    env_family_preserved:
+      - AIEOS_TEMPORAL_TARGET_HOST
+      - AIEOS_TEMPORAL_NAMESPACE
+      - AIEOS_TEMPORAL_API_KEY
+      - AIEOS_TEMPORAL_CONNECT_TIMEOUT_SECONDS
+      - AIEOS_TEMPORAL_SHUTDOWN_GRACE_SECONDS
+    env_family_must_not_be_renamed: true
+    no_values_for_env_vars_in_source: true
+    no_app_platform_config_in_this_slice: true
+
+identity_separation:
+  temporal_identities_separate_from:
+    - postgresql_workflow_dispatcher_login
+    - aieos_workflow_candidate_reader
+    - TEMPORAL_WORKER_vs_WORKFLOW_DISPATCHER
+    - event_dispatcher
+    - api_runtime
+    - migrator
+    - database_deployment_administrator
+    - human_operator_credentials
+    - aieos_business_principal_identity
+  workflow_candidate_reader_nologin_no_credential: true
+  temporal_service_account_not_postgresql_role: true
+  temporal_service_account_not_aieos_principal: true
+  temporal_api_key_not_business_authorization: true
+
+fail_closed:
+  triggers:
+    - missing_temporal_target_configuration
+    - missing_namespace_configuration
+    - missing_api_key_secret
+    - tls_verification_failure
+    - connection_establishment_failure
+    - incompatible_missing_governed_runtime_configuration
+  must_not_result_in:
+    - plaintext_fallback
+    - anonymous_connection
+    - alternate_workflow_engine
+    - local_temporal_fallback
+    - worker_credential_reuse
+    - cloud_ops_credential_reuse
+
+rotation_model:
+  sequence:
+    - create_authorize_replacement_key
+    - inject_replacement_through_authorized_encrypted_secret_channel
+    - restart_redeploy_affected_workload
+    - verify_healthy_authenticated_operation
+    - revoke_old_key
+  dispatcher_and_worker_rotate_independently: true
+  this_repository_does_not_execute_production_rotation: true
+
+observability:
+  allowed_non_secret_evidence:
+    - workload_kind
+    - release_git_sha
+    - non_secret_temporal_client_identity
+    - non_secret_namespace_identifier
+    - workflow_id
+    - workflow_type
+    - task_queue
+    - workflow_intent_id
+    - command_id_where_appropriate
+    - delivery_reconciliation_result
+    - retry_quarantine_category
+    - startup_shutdown_category
+  forbidden_log_material:
+    - workflow_input_payload
+    - workflow_command_payload
+    - temporal_api_key
+    - db_password_url
+    - authorization_token
+    - secret_values
+  temporal_provider_audit_not:
+    - security_audit_records_authority
+    - approval_truth
+    - business_authorization_truth
+
+production_authority:
+  temporal_cloud_access: false
+  namespace_create: false
+  namespace_update: false
+  namespace_delete: false
+  service_account_create: false
+  service_account_update: false
+  service_account_delete: false
+  api_key_create: false
+  api_key_revoke: false
+  cloud_ops_mutation: false
+  production_temporal_connectivity_test: false
+  production_db_access: false
+  database_migration: false
+  workflow_dispatcher_backend_implementation: false
+  temporal_worker_deployment: false
+  workflow_dispatcher_deployment: false
+  digitalocean_mutation: false
+  opentofu_apply: false
+  app_platform_mutation: false
+  production_execution: false
+  production_deployment: false
+
+prohibited_source_material:
+  - temporal_api_key_values
+  - temporal_service_account_credentials
+  - temporal_account_tokens
+  - cloud_ops_bearer_tokens
+  - production_endpoint_hostname
+  - production_namespace_identifier_as_source_constant
+  - credentials_files
+  - dotenv_secret_files
+  - tfvars_secret_values
+  - committed_plans_containing_secrets
+
+static_proof_only:
+  live_provider_rbac_claimed: false
+  local_temporal_server_not_temporal_cloud_rbac_proof: true
+  evidence_class: source_contract_exactness_static_proof
