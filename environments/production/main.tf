@@ -18,6 +18,22 @@ locals {
   # consume the USD 250 DigitalOcean service-charge ceiling (ADR-AIEOS-044).
   commercial_gst_basis              = "STATUTORY_TAXES_TRACKED_SEPARATELY"
   commercial_full_estate_incomplete = true
+
+  # WPI-I01R1 — zero provider instances when account ID is null (disabled/inert).
+  temporal_cloud_provider_instances = (
+    var.temporal_cloud_allowed_account_id == null
+    ? {}
+    : {
+      production = var.temporal_cloud_allowed_account_id
+    }
+  )
+
+  # Resource instances ⊆ provider instances; fail-closed if enable=true without account ID.
+  temporal_cloud_resource_instances = (
+    var.enable_temporal_cloud_resources
+    ? { production = true }
+    : {}
+  )
 }
 
 check "bootstrap_commercial_slice_under_target" {
@@ -75,11 +91,15 @@ module "aistor_network" {
 }
 
 # Temporal Cloud workflow plane — Namespace + two service accounts only.
-# Independent of enable_cloud_resources. Default count 0 (source modeling).
+# Independent of enable_cloud_resources. Default for_each {} (source modeling).
 # Does NOT manage API keys (token would enter tfstate — later credential gate).
 module "temporal_cloud_workflow_plane" {
-  source = "../../modules/temporal_cloud_workflow_plane"
-  count  = var.enable_temporal_cloud_resources ? 1 : 0
+  source   = "../../modules/temporal_cloud_workflow_plane"
+  for_each = local.temporal_cloud_resource_instances
+
+  providers = {
+    temporalcloud = temporalcloud.production[each.key]
+  }
 
   namespace_name           = var.temporal_namespace_name
   namespace_region         = var.temporal_namespace_region

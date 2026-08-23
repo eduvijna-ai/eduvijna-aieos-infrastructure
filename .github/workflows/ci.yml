@@ -76,8 +76,11 @@ jobs:
           fi
 
       - name: Validate Temporal Cloud provisioning-source static proofs
-        working-directory: .
         run: bash scripts/temporal/validate-provisioning-source.sh
+
+      - name: Disposable disabled Temporal provider plan proof (WPI-I01R1)
+        working-directory: .
+        run: bash scripts/temporal/ci-test-disabled-provider-plan.sh
 
   postgresql-identity-bootstrap:
     name: postgresql-identity-bootstrap
@@ -160,6 +163,9 @@ jobs:
 
       - name: Validate Temporal Cloud provisioning-source static proofs
         run: bash scripts/temporal/validate-provisioning-source.sh
+
+      - name: Disposable disabled Temporal provider plan proof (WPI-I01R1)
+        run: bash scripts/temporal/ci-test-disabled-provider-plan.sh
 
       - name: Prove CI has no Temporal Cloud credential
         run: |

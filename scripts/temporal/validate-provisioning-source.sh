@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WPI-I01 — static Temporal Cloud provisioning-source proofs.
+# WPI-I01 / WPI-I01R1 — static Temporal Cloud provisioning-source proofs.
 # SOURCE MODELING / STATIC PROOF ONLY.
 # Does NOT authenticate to Temporal Cloud. Does NOT plan or apply.
 set -euo pipefail
@@ -40,11 +40,29 @@ grep -F 'endpoint           = "saas-api.tmprl.cloud:443"' "$PROVIDERS" >/dev/nul
   || fail "Cloud Ops endpoint must be saas-api.tmprl.cloud:443"
 grep -E 'allow_insecure[[:space:]]*=[[:space:]]*false' "$PROVIDERS" >/dev/null \
   || fail "allow_insecure must be false"
-grep -F 'allowed_account_id = var.temporal_cloud_allowed_account_id' "$PROVIDERS" >/dev/null \
-  || fail "allowed_account_id must bind to var.temporal_cloud_allowed_account_id"
+grep -F 'allowed_account_id = each.value' "$PROVIDERS" >/dev/null \
+  || fail "allowed_account_id must bind to each.value on dynamic provider instance"
 if grep -E 'api_key[[:space:]]*=' "$PROVIDERS" >/dev/null; then
   fail "api_key must not appear in provider source (use TEMPORAL_CLOUD_API_KEY env only)"
 fi
+
+# WPI-I01R1 — dynamic aliased provider; no unconditional default provider
+grep -E 'provider[[:space:]]+"temporalcloud"[[:space:]]*\{' "$PROVIDERS" >/dev/null \
+  || fail "temporalcloud provider block missing"
+grep -F 'alias    = "production"' "$PROVIDERS" >/dev/null \
+  || grep -F 'alias = "production"' "$PROVIDERS" >/dev/null \
+  || fail "temporalcloud provider must use alias production"
+grep -F 'for_each = local.temporal_cloud_provider_instances' "$PROVIDERS" >/dev/null \
+  || fail "temporalcloud provider must use for_each = local.temporal_cloud_provider_instances"
+if awk '/provider "temporalcloud"/,/^}/' "$PROVIDERS" | grep -q 'allowed_account_id = var\.'; then
+  fail "unconditional allowed_account_id = var.* binding is forbidden (use each.value on dynamic instance)"
+fi
+
+# Provider instance set depends on account ID presence
+grep -F 'temporal_cloud_provider_instances' "$MAIN" >/dev/null \
+  || fail "temporal_cloud_provider_instances local missing"
+grep -F 'var.temporal_cloud_allowed_account_id == null' "$MAIN" >/dev/null \
+  || fail "provider instances must depend on temporal_cloud_allowed_account_id null check"
 
 # Lockfile pins
 grep -q 'version.*=.*"2.99.1"' "$LOCK" || fail "lockfile must pin digitalocean 2.99.1"
@@ -60,15 +78,33 @@ awk '/variable "enable_cloud_resources"/,/^}/' "$VARS" \
 awk '/variable "enable_temporal_cloud_resources"/,/^}/' "$VARS" \
   | grep -E '^\s*default\s*=\s*false\s*$' >/dev/null \
   || fail "enable_temporal_cloud_resources default must be false"
-grep -F 'count  = var.enable_temporal_cloud_resources ? 1 : 0' "$MAIN" >/dev/null \
-  || grep -F 'count = var.enable_temporal_cloud_resources ? 1 : 0' "$MAIN" >/dev/null \
-  || fail "temporal module must use enable_temporal_cloud_resources count guard"
 
-# Required inputs — no production defaults for unresolved decisions
+# Module for_each guard + explicit dynamic provider wiring
+grep -F 'for_each = local.temporal_cloud_resource_instances' "$MAIN" >/dev/null \
+  || fail "temporal module must use for_each = local.temporal_cloud_resource_instances"
+grep -F 'temporal_cloud_resource_instances' "$MAIN" >/dev/null \
+  || fail "temporal_cloud_resource_instances local missing"
+grep -F 'var.enable_temporal_cloud_resources' "$MAIN" >/dev/null \
+  || fail "resource instances must depend on enable_temporal_cloud_resources"
+grep -F 'temporalcloud = temporalcloud.production[each.key]' "$MAIN" >/dev/null \
+  || fail "module must receive explicit dynamic temporalcloud.production provider instance"
+if grep -F 'count  = var.enable_temporal_cloud_resources' "$MAIN" >/dev/null \
+  || grep -F 'count = var.enable_temporal_cloud_resources' "$MAIN" >/dev/null; then
+  fail "temporal module must not use count guard (use for_each)"
+fi
+
+# Unresolved Temporal inputs default null (null is NOT a production default)
 for v in temporal_cloud_allowed_account_id temporal_namespace_name temporal_namespace_region temporal_namespace_retention_days; do
   block="$(awk "/variable \"${v}\"/,/^}/" "$VARS")"
-  echo "$block" | grep -E '^\s*default\s*=' >/dev/null \
-    && fail "${v} must not have a default"
+  echo "$block" | grep -E '^\s*default\s*=\s*null\s*$' >/dev/null \
+    || fail "${v} must default null when unresolved"
+done
+
+# Child module fail-closed non-null inputs when instance exists
+for v in namespace_name namespace_region namespace_retention_days; do
+  block="$(awk "/variable \"${v}\"/,/^}/" "${MODULE}/variables.tf")"
+  echo "$block" | grep -E 'nullable[[:space:]]*=[[:space:]]*false' >/dev/null \
+    || fail "module ${v} must set nullable = false"
 done
 
 # No hard-coded production decisions in .tf (descriptions must not embed candidates either)
@@ -154,5 +190,5 @@ if grep -RInE --include='*.yml' --include='*.yaml' \
   fail "CI must not assign TEMPORAL_CLOUD_API_KEY"
 fi
 
-ok "WPI-I01 Temporal Cloud provisioning-source static proofs"
+ok "WPI-I01 / WPI-I01R1 Temporal Cloud provisioning-source static proofs"
 echo "NOTE: This result does NOT authorize Temporal Cloud access, plan, apply, or commercial enrollment."

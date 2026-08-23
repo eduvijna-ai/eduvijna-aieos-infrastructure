@@ -13,10 +13,11 @@ enable_cloud_resources = false
 # Temporal Cloud production provisioning gate. Independent from DigitalOcean.
 enable_temporal_cloud_resources = false
 
-# Required Temporal Cloud inputs (no production defaults). Unresolved decisions —
-# replace only under a later authorized gate. Never commit live account IDs,
-# Namespace names, regions, or retention as frozen source constants.
-temporal_cloud_allowed_account_id  = "REPLACE_WITH_TEMPORAL_CLOUD_ACCOUNT_ID"
-temporal_namespace_name            = "replace-with-namespace-name"
-temporal_namespace_region          = "REPLACE_WITH_TEMPORAL_CLOUD_REGION"
-temporal_namespace_retention_days  = 1
+# Temporal inputs remain commented while the guard is false.
+# Uncomment and set ONLY under an authorized Temporal Cloud provisioning gate.
+# Copying this example unchanged must yield zero Temporal provider instances.
+#
+# temporal_cloud_allowed_account_id = "SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE"
+# temporal_namespace_name           = "SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE"
+# temporal_namespace_region           = "SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE"
+# temporal_namespace_retention_days   = <SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE>

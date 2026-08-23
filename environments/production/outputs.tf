@@ -47,26 +47,10 @@ output "module_instantiation" {
 output "temporal_cloud_workflow_plane" {
   description = "Non-secret Temporal Cloud workflow-plane identifiers when enabled; nulls when guard is false."
   value = {
-    enabled = var.enable_temporal_cloud_resources
-    namespace_id = (
-      var.enable_temporal_cloud_resources
-      ? module.temporal_cloud_workflow_plane[0].namespace_id
-      : null
-    )
-    namespace_grpc_address = (
-      var.enable_temporal_cloud_resources
-      ? module.temporal_cloud_workflow_plane[0].namespace_grpc_address
-      : null
-    )
-    workflow_dispatcher_service_account_id = (
-      var.enable_temporal_cloud_resources
-      ? module.temporal_cloud_workflow_plane[0].workflow_dispatcher_service_account_id
-      : null
-    )
-    temporal_worker_service_account_id = (
-      var.enable_temporal_cloud_resources
-      ? module.temporal_cloud_workflow_plane[0].temporal_worker_service_account_id
-      : null
-    )
+    enabled                                = var.enable_temporal_cloud_resources
+    namespace_id                           = try(module.temporal_cloud_workflow_plane["production"].namespace_id, null)
+    namespace_grpc_address                 = try(module.temporal_cloud_workflow_plane["production"].namespace_grpc_address, null)
+    workflow_dispatcher_service_account_id = try(module.temporal_cloud_workflow_plane["production"].workflow_dispatcher_service_account_id, null)
+    temporal_worker_service_account_id     = try(module.temporal_cloud_workflow_plane["production"].temporal_worker_service_account_id, null)
   }
 }

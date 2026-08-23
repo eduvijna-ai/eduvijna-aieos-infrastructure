@@ -41,8 +41,49 @@ WPI-I01 does **not** encode an assumption that the Namespace does not exist.
 | Temporal Cloud provider | `temporalio/temporalcloud` `= 1.7.0` |
 | Cloud Ops endpoint | `saas-api.tmprl.cloud:443` |
 | `allow_insecure` | `false` |
-| `allowed_account_id` | `var.temporal_cloud_allowed_account_id` |
+| `allowed_account_id` | `each.value` on dynamic `temporalcloud.production` instance |
 | `api_key` in source | **forbidden** — later use provider env `TEMPORAL_CLOUD_API_KEY` only |
+
+### WPI-I01R1 — disabled provider inertness
+
+An unconditional Temporal Cloud provider configuration is **unsafe**: provider
+v1.7.0 `Configure` constructs a Cloud API client and validates non-empty
+`allowed_account_id` via `GetAccount` even when `enable_temporal_cloud_resources
+= false`.
+
+Required disabled-mode invariant:
+
+```text
+temporal_cloud_allowed_account_id = null
+enable_temporal_cloud_resources   = false
+→ zero temporalcloud.production provider instances
+→ zero Temporal module/resource instances
+→ no TEMPORAL_CLOUD_API_KEY required
+→ DigitalOcean-only path remains independent
+```
+
+Dynamic model:
+
+- `local.temporal_cloud_provider_instances` — keyed by account ID presence
+- `local.temporal_cloud_resource_instances` — keyed by `enable_temporal_cloud_resources`
+- Module `for_each` with explicit `providers = { temporalcloud = temporalcloud.production[each.key] }`
+- **Resource instances ⊆ provider instances**; `enable=true` without account ID fails closed at plan
+
+`null` on root Temporal inputs means **unresolved / not configured** — it is
+**not** a production default.
+
+### Provider lifecycle safety (destruction)
+
+When removing Temporal managed resources under a later authorized gate:
+
+1. Keep `temporal_cloud_allowed_account_id` supplied (provider instance alive)
+2. Keep `TEMPORAL_CLOUD_API_KEY` available under that execution gate
+3. Set `enable_temporal_cloud_resources = false`
+4. Destroy/remove Temporal managed resources from state
+5. Only after state contains no resources using that provider may the account ID
+   be removed and the provider instance disappear
+
+Do **not** encode provider and resources to disappear simultaneously.
 
 ## 4. Modeled resource topology
 
@@ -85,14 +126,16 @@ Independent from DigitalOcean `enable_cloud_resources` (also default **false**).
 `true` requires a later explicit Chief Architect production Temporal Cloud
 provisioning gate. WPI-I01 does not authorize that gate.
 
-## 6. Unresolved production inputs (no defaults)
+## 6. Unresolved production inputs (default null)
 
-| Variable | Status |
-| --- | --- |
-| `temporal_cloud_allowed_account_id` | unresolved |
-| `temporal_namespace_name` | unresolved |
-| `temporal_namespace_region` | unresolved |
-| `temporal_namespace_retention_days` | unresolved |
+| Variable | Disabled default | Meaning |
+| --- | --- | --- |
+| `temporal_cloud_allowed_account_id` | `null` | Temporal plane not configured |
+| `temporal_namespace_name` | `null` | unresolved |
+| `temporal_namespace_region` | `null` | unresolved |
+| `temporal_namespace_retention_days` | `null` | unresolved |
+
+`null` is **not** a production default. Non-null values retain syntax validation.
 
 Non-binding WPI-PF01 observations (documentation only — **not frozen**):
 
@@ -148,3 +191,4 @@ Static validators:
 
 - [`scripts/temporal/validate-contract.sh`](../scripts/temporal/validate-contract.sh)
 - [`scripts/temporal/validate-provisioning-source.sh`](../scripts/temporal/validate-provisioning-source.sh)
+- [`scripts/temporal/ci-test-disabled-provider-plan.sh`](../scripts/temporal/ci-test-disabled-provider-plan.sh) — disposable disabled-mode plan proof (WPI-I01R1)

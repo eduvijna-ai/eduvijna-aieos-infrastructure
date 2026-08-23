@@ -1,8 +1,9 @@
 terraform {
   required_providers {
     temporalcloud = {
-      source  = "temporalio/temporalcloud"
-      version = "= 1.7.0"
+      source                = "temporalio/temporalcloud"
+      version               = "= 1.7.0"
+      configuration_aliases = [temporalcloud]
     }
   }
 }

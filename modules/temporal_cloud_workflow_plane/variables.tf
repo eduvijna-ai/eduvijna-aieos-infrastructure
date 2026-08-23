@@ -1,6 +1,7 @@
 variable "namespace_name" {
   type        = string
-  description = "Temporal Cloud Namespace name (provider-compatible lowercase syntax). Production value is an unresolved provisioning decision — not frozen here."
+  nullable    = false
+  description = "Temporal Cloud Namespace name (provider-compatible lowercase syntax). Required when module instance exists."
 
   validation {
     condition = (
@@ -14,7 +15,8 @@ variable "namespace_name" {
 
 variable "namespace_region" {
   type        = string
-  description = "Exactly one Temporal Cloud region code. Production region is unresolved — not frozen here. See docs/WPI-I01-TEMPORAL-CLOUD-PROVISIONING-SOURCE.md for non-binding candidates."
+  nullable    = false
+  description = "Exactly one Temporal Cloud region code. Required when module instance exists."
 
   validation {
     condition     = length(trimspace(var.namespace_region)) > 0
@@ -24,7 +26,8 @@ variable "namespace_region" {
 
 variable "namespace_retention_days" {
   type        = number
-  description = "Namespace retention_days. Production retention is an unresolved architecture/provisioning decision — not frozen here."
+  nullable    = false
+  description = "Namespace retention_days. Required when module instance exists."
 
   validation {
     condition     = var.namespace_retention_days == floor(var.namespace_retention_days) && var.namespace_retention_days >= 1
