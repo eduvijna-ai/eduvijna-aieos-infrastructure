@@ -113,3 +113,73 @@ variable "enable_cloud_resources" {
   EOT
   default     = false
 }
+
+variable "enable_temporal_cloud_resources" {
+  type        = bool
+  description = <<-EOT
+    Independent Temporal Cloud activation guard (WPI-I01).
+    Default false = source modeling only.
+    Setting true requires a later explicit Chief Architect production
+    Temporal Cloud provisioning gate. Independent from DigitalOcean
+    enable_cloud_resources. Does NOT authorize API-key issuance, commercial
+    enrollment, plan, or apply by itself.
+  EOT
+  default     = false
+}
+
+variable "temporal_cloud_allowed_account_id" {
+  type        = string
+  description = <<-EOT
+    Temporal Cloud account ID safety guard for the temporalcloud provider
+    (allowed_account_id). Required input with no production default.
+    Unresolved until a separately authorized Temporal Cloud account exists.
+    Never commit the live production account ID as a source constant.
+  EOT
+}
+
+variable "temporal_namespace_name" {
+  type        = string
+  description = <<-EOT
+    Intended Temporal Cloud Namespace name. Required input with no production
+    default. Unresolved provisioning decision — do not freeze WPI-PF01
+    recommendations here.
+  EOT
+
+  validation {
+    condition = (
+      length(var.temporal_namespace_name) >= 2 &&
+      length(var.temporal_namespace_name) <= 64 &&
+      can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", var.temporal_namespace_name))
+    )
+    error_message = "temporal_namespace_name must be 2-64 chars, start with a letter, contain only lowercase letters/digits/hyphens, and not end with a hyphen."
+  }
+}
+
+variable "temporal_namespace_region" {
+  type        = string
+  description = <<-EOT
+    Exactly one Temporal Cloud region code for the production Namespace.
+    Required input with no production default. Non-binding leading candidates
+    are documented only in docs/WPI-I01-TEMPORAL-CLOUD-PROVISIONING-SOURCE.md —
+    do not treat documentation as a frozen value.
+  EOT
+
+  validation {
+    condition     = length(trimspace(var.temporal_namespace_region)) > 0
+    error_message = "temporal_namespace_region must be a non-empty string."
+  }
+}
+
+variable "temporal_namespace_retention_days" {
+  type        = number
+  description = <<-EOT
+    Namespace retention_days. Required positive integer with no production
+    default. Unresolved architecture/provisioning decision — not frozen by
+    WPI-I01.
+  EOT
+
+  validation {
+    condition     = var.temporal_namespace_retention_days == floor(var.temporal_namespace_retention_days) && var.temporal_namespace_retention_days >= 1
+    error_message = "temporal_namespace_retention_days must be a positive integer."
+  }
+}

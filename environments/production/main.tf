@@ -73,3 +73,15 @@ module "aistor_network" {
   admin_source_cidrs = []
   s3_source_cidrs    = [var.vpc_ip_range]
 }
+
+# Temporal Cloud workflow plane — Namespace + two service accounts only.
+# Independent of enable_cloud_resources. Default count 0 (source modeling).
+# Does NOT manage API keys (token would enter tfstate — later credential gate).
+module "temporal_cloud_workflow_plane" {
+  source = "../../modules/temporal_cloud_workflow_plane"
+  count  = var.enable_temporal_cloud_resources ? 1 : 0
+
+  namespace_name           = var.temporal_namespace_name
+  namespace_region         = var.temporal_namespace_region
+  namespace_retention_days = var.temporal_namespace_retention_days
+}
