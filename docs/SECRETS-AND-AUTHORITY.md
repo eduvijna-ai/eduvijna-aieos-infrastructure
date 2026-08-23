@@ -16,6 +16,8 @@ committed to Git, or documentation.
 | AIStor server private key | TLS for AIStor | In Git, `.tfvars`, cloud-init in Git, or state |
 | Runtime CA trust bundle | Future encrypted App Platform config | Public plaintext repo content |
 | Database administration credential | PostgreSQL deployment identity bootstrap / JIT membership / role verification | API runtime, migrator routine use, dispatcher, Temporal, App Platform workload |
+| NATS EVENT publisher `.creds` | Production EVENT dispatcher broker auth (JWT+NKey) | Committed; streamadmin; unrelated workloads; disk file as production authority |
+| NATS `streamadmin` | Governed stream create/verify/maintenance only | EVENT/API/WORKFLOW runtime injection |
 
 ## Database administration credential (ADR-AIEOS-045)
 
@@ -33,6 +35,25 @@ Delivery: authorized deployment secret channel only. Never commit passwords, con
 ### Candidate-reader roles
 
 Event and workflow candidate-readers are **NOLOGIN** and have **NO CREDENTIAL**. No password, API key, or application secret is provisioned for them in the Infrastructure bootstrap phase.
+
+## NATS EVENT credential (ADR-AIEOS-046 / EPI-SF01)
+
+Production secret environment variable (App Platform encrypted env only):
+
+```text
+AIEOS_EVENT_DISPATCHER_NATS_CREDENTIALS
+```
+
+Contains JWT + NKey `.creds` material. Future runtime consumes it **in memory** via
+`user_jwt_cb` + `signature_cb`. `AIEOS_EVENT_DISPATCHER_NATS_CREDENTIALS_FILE` is **not**
+production authority.
+
+`streamadmin` is a separate identity and must never be injected into the EVENT dispatcher.
+
+Source repositories and CI must contain **zero** production seeds, user JWTs, or `.creds`
+files. CI may generate ephemeral disposable credentials outside the repository tree only.
+
+See [NATS-PRODUCTION-EVENT-PLANE.md](NATS-PRODUCTION-EVENT-PLANE.md).
 
 ## Ordinary runtime IAM (documentation)
 

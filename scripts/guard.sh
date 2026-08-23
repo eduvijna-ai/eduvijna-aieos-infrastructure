@@ -33,6 +33,16 @@ if grep -RInE --include='*.yml' --include='*.yaml' --include='*.sh' \
   fail "apply/destroy commands are forbidden in CI/scripts"
 fi
 
+# Disallow committed NATS JWT / NKey seed material and .creds files
+if find . -type f -name '*.creds' ! -path './.git/*' | grep -q .; then
+  fail "committed .creds files are forbidden"
+fi
+if grep -RInE --exclude-dir='.git' --exclude-dir='.terraform' \
+  --exclude='guard.sh' --exclude='validate-contract.sh' --exclude='ci-test-event-plane.sh' \
+  'BEGIN NATS USER JWT|BEGIN USER NKEY SEED' .; then
+  fail "possible committed NATS JWT or NKey seed material"
+fi
+
 # Disallow production remote init without -backend=false in CI
 if grep -RIn --include='*.yml' --include='*.yaml' --exclude-dir='.git' 'tofu init' .github \
   | grep -v '\-backend=false' | grep -q .; then

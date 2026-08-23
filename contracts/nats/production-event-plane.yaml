@@ -1,0 +1,50 @@
+# EPI-SF01 production NATS event-plane contract
+# Authority: ADR-AIEOS-046 (Chief-approved; Architecture PR may be awaiting merge)
+# This file freezes source contract only — it does NOT authorize production provisioning.
+# No private keys, seeds, JWTs, .creds, or endpoint secrets belong here.
+
+schema_version: "1"
+authority: ADR-AIEOS-046
+environment: production
+
+stream:
+  name: AIEOS_EVENTS_PROD
+  subjects:
+    - "io.eduvijna.aieos.>"
+
+event_publisher:
+  publish:
+    - "io.eduvijna.aieos.content.>"
+  subscribe:
+    - "_INBOX.>"
+  stream_admin: false
+  js_api_stream_admin: false
+
+credentials:
+  scheme: jwt_nkey_creds
+  secret_env: AIEOS_EVENT_DISPATCHER_NATS_CREDENTIALS
+  delivery: encrypted_environment
+  runtime_materialization: in_memory_callbacks
+  # Superseded — not production authority:
+  # secret_env_file: AIEOS_EVENT_DISPATCHER_NATS_CREDENTIALS_FILE
+
+stream_admin:
+  identity: streamadmin
+  separate_from_event_runtime: true
+
+transport:
+  tls_required: true
+  private_endpoint_required: true
+  certificate_verification_required: true
+
+prohibited_as_production_authority:
+  stream_names:
+    - AIEOS_EVENTS
+  subject_prefixes:
+    - "aieos.event.v1."
+  credential_schemes:
+    - username_password
+    - static_bearer
+    - unauthenticated
+  secret_envs:
+    - AIEOS_EVENT_DISPATCHER_NATS_CREDENTIALS_FILE

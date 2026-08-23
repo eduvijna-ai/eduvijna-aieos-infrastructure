@@ -109,3 +109,21 @@ jobs:
 
       - name: Run disposable identity bootstrap CI proof
         run: bash scripts/postgresql/ci-test-bootstrap.sh
+
+  nats-production-event-plane:
+    name: nats-production-event-plane
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Secret / apply / local-state guards
+        run: bash scripts/guard.sh
+
+      - name: Validate production event-plane contract exactness
+        run: bash scripts/nats/validate-contract.sh
+
+      - name: Disposable JWT+NKey ACL proof (nats-server 2.14.3)
+        run: bash scripts/nats/ci-test-event-plane.sh
