@@ -51,18 +51,37 @@ jobs:
           awk '/variable "enable_cloud_resources"/,/^}/' environments/production/variables.tf \
             | grep -E '^\s*default\s*=\s*false\s*$'
 
-      - name: Prove lockfile pins DigitalOcean 2.99.1
+      - name: Prove enable_temporal_cloud_resources remains false by default
+        working-directory: .
+        run: |
+          awk '/variable "enable_temporal_cloud_resources"/,/^}/' environments/production/variables.tf \
+            | grep -E '^\s*default\s*=\s*false\s*$'
+
+      - name: Prove lockfile pins DigitalOcean 2.99.1 and Temporal Cloud 1.7.0
         working-directory: .
         run: |
           test -f environments/production/.terraform.lock.hcl
           grep -q 'version.*=.*"2.99.1"' environments/production/.terraform.lock.hcl
+          grep -q 'version.*=.*"1.7.0"' environments/production/.terraform.lock.hcl
 
-      - name: Prove CI has no DigitalOcean token
+      - name: Prove CI has no DigitalOcean or Temporal Cloud credentials
         run: |
           if [ -n "${DIGITALOCEAN_TOKEN:-}" ]; then
             echo "DIGITALOCEAN_TOKEN must not be present in foundation CI" >&2
             exit 1
           fi
+          if [ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]; then
+            echo "TEMPORAL_CLOUD_API_KEY must not be present in foundation CI" >&2
+            exit 1
+          fi
+
+      - name: Validate Temporal Cloud provisioning-source static proofs
+        working-directory: .
+        run: bash scripts/temporal/validate-provisioning-source.sh
+
+      - name: Disposable disabled Temporal provider plan proof (WPI-I01R1)
+        working-directory: .
+        run: bash scripts/temporal/ci-test-disabled-provider-plan.sh
 
   postgresql-identity-bootstrap:
     name: postgresql-identity-bootstrap
@@ -140,5 +159,23 @@ jobs:
       - name: Secret / apply / local-state guards
         run: bash scripts/guard.sh
 
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.12.5
+
       - name: Validate production Temporal workflow-plane contract exactness
         run: bash scripts/temporal/validate-contract.sh
+
+      - name: Validate Temporal Cloud provisioning-source static proofs
+        run: bash scripts/temporal/validate-provisioning-source.sh
+
+      - name: Disposable disabled Temporal provider plan proof (WPI-I01R1)
+        run: bash scripts/temporal/ci-test-disabled-provider-plan.sh
+
+      - name: Prove CI has no Temporal Cloud credential
+        run: |
+          if [ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]; then
+            echo "TEMPORAL_CLOUD_API_KEY must not be present in foundation CI" >&2
+            exit 1
+          fi

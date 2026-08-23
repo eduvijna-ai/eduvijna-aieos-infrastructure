@@ -1,7 +1,8 @@
 output "foundation_status" {
   description = "Human-readable foundation posture."
   value = {
-    cloud_resources_enabled = var.enable_cloud_resources
+    cloud_resources_enabled          = var.enable_cloud_resources
+    temporal_cloud_resources_enabled = var.enable_temporal_cloud_resources
     # TRUE = authorized production remote S3 backend initialization gate completed.
     # TRUE does NOT mean remote tfstate exists, apply occurred, or workload resources exist.
     # Production remote tfstate object existence is operational execution evidence and is
@@ -35,9 +36,21 @@ output "foundation_status" {
 output "module_instantiation" {
   description = "Whether cloud-mutating modules are currently instantiated."
   value = {
-    production_project = length(module.production_project)
-    production_vpc     = length(module.production_vpc)
-    aistor_bootstrap   = length(module.aistor_bootstrap)
-    aistor_network     = length(module.aistor_network)
+    production_project            = length(module.production_project)
+    production_vpc                = length(module.production_vpc)
+    aistor_bootstrap              = length(module.aistor_bootstrap)
+    aistor_network                = length(module.aistor_network)
+    temporal_cloud_workflow_plane = length(module.temporal_cloud_workflow_plane)
+  }
+}
+
+output "temporal_cloud_workflow_plane" {
+  description = "Non-secret Temporal Cloud workflow-plane identifiers when enabled; nulls when guard is false."
+  value = {
+    enabled                                = var.enable_temporal_cloud_resources
+    namespace_id                           = try(module.temporal_cloud_workflow_plane["production"].namespace_id, null)
+    namespace_grpc_address                 = try(module.temporal_cloud_workflow_plane["production"].namespace_grpc_address, null)
+    workflow_dispatcher_service_account_id = try(module.temporal_cloud_workflow_plane["production"].workflow_dispatcher_service_account_id, null)
+    temporal_worker_service_account_id     = try(module.temporal_cloud_workflow_plane["production"].temporal_worker_service_account_id, null)
   }
 }

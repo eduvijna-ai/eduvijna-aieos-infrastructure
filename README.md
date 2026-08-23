@@ -33,6 +33,7 @@ mutation occurred. `enable_cloud_resources` remains **false**.
 
 - OpenTofu **1.12.5** (see `.opentofu-version`)
 - Provider `digitalocean/digitalocean` **2.99.1** (locked)
+- Provider `temporalio/temporalcloud` **1.7.0** (locked; source-modeled only)
 
 Do **not** use Terraform CLI as the implementation authority.
 
@@ -47,12 +48,15 @@ docs/                      # baseline, state, secrets, runbook
 ## Absolute prohibitions (this foundation)
 
 - No DigitalOcean resource mutation from CI or local convenience
+- No Temporal Cloud account enrollment, control-plane access, or resource mutation
+  from this foundation without a later Chief Architect provisioning gate
 - No further `tofu apply` against production without Chief Architect authorization
 - Stage 2 production backend initialization completed in the authorized
   operator workspace. Any new/reconfigured production backend initialization
   in a clean or different workspace still requires an explicit Chief Architect
   execution gate.
 - No secrets in Git, `.tfvars`, plans, or documentation
+- No Temporal API-key resources in WPI-I01 (token would enter tfstate)
 - No reuse of DOKS / default VPC / legacy Spaces as AIStor production
 
 ## Commercial envelope (guardrails)
@@ -86,3 +90,5 @@ calculation covering every resource in that apply plus retained estate.
 - [contracts/nats/production-event-plane.yaml](contracts/nats/production-event-plane.yaml) — machine-readable event-plane freeze
 - [TEMPORAL-PRODUCTION-WORKFLOW-PLANE.md](docs/TEMPORAL-PRODUCTION-WORKFLOW-PLANE.md) — ADR-AIEOS-047 source contract (no Temporal Cloud provisioning)
 - [contracts/temporal/production-workflow-plane.yaml](contracts/temporal/production-workflow-plane.yaml) — machine-readable workflow-plane freeze
+- [WPI-I01-TEMPORAL-CLOUD-PROVISIONING-SOURCE.md](docs/WPI-I01-TEMPORAL-CLOUD-PROVISIONING-SOURCE.md) — Temporal Cloud provisioning source model (Namespace + SAs only; no API keys; no apply)
+- [modules/temporal_cloud_workflow_plane/](modules/temporal_cloud_workflow_plane/) — narrowly scoped Temporal Cloud workflow-plane module

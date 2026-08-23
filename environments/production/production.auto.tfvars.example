@@ -8,3 +8,16 @@ vpc_ip_range = "10.130.0.0/20"
 
 # HARD GUARD — remain false until Chief Architect authorizes production apply.
 enable_cloud_resources = false
+
+# Independent Temporal Cloud guard — remain false until a later Chief Architect
+# Temporal Cloud production provisioning gate. Independent from DigitalOcean.
+enable_temporal_cloud_resources = false
+
+# Temporal inputs remain commented while the guard is false.
+# Uncomment and set ONLY under an authorized Temporal Cloud provisioning gate.
+# Copying this example unchanged must yield zero Temporal provider instances.
+#
+# temporal_cloud_allowed_account_id = "SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE"
+# temporal_namespace_name           = "SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE"
+# temporal_namespace_region           = "SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE"
+# temporal_namespace_retention_days   = <SET_ONLY_UNDER_AUTHORIZED_TEMPORAL_GATE>

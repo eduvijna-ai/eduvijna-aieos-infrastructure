@@ -39,3 +39,37 @@ provider "registry.opentofu.org/digitalocean/digitalocean" {
     "zh:f183b1e428232e110404f0decbc136b678ae6cb662a7d088f05e7ceee25f5e81",
   ]
 }
+
+provider "registry.opentofu.org/temporalio/temporalcloud" {
+  version     = "1.7.0"
+  constraints = "1.7.0"
+  hashes = [
+    "h1:1VeC6Pb3bBw7417MryeZNkZjdskCydnjrQNinsgbUkM=",
+    "h1:3d+Hlw0vV1tAtI7PhzkA4CQN/XnzfsXy45GHDw6SsGU=",
+    "h1:5yr+lrWc6d3MclpZYnAH7CoLOjyIKMXWCpBbE/w6d6o=",
+    "h1:Jsd3Spl+TmA8LkeRp1h29HvwKYvhhQu+/CjWK1Po96M=",
+    "h1:Km7WVS6hfH4Euwz5YoXk6hqYnMyIKhI7fLhtEEKDpqk=",
+    "h1:Kn1AigPP1XXz1aBr2P8kjDMaQ15T+zdlgfb52FVvzTY=",
+    "h1:R74vgjI4SfOFRAZN20Sa9brrQeRiXkDMldkUzM7F4uU=",
+    "h1:RhWnrp+4bGyRoc2zrmw4jZ2DMHCOPxRA3F29ahU0NnE=",
+    "h1:lBRUb3yOROAzaDPdnDiyWdJQTYXmfQLJAbvIZ/Ty09w=",
+    "h1:o53luERNPAAho3OGnTAQqSN93F8Sm2bQZ8/uPVbhzoc=",
+    "h1:s6u0gRHeiXCyVPGd/Bq+abCNYltMQ48ucDaBfqLlcUo=",
+    "h1:slY4Fki5nY/DZOq2ofK3Lb1aU9CocI0Sts24e71G/uc=",
+    "h1:sv3a1E6HUwOHxTBMha2itVLlzZQbVnf4xodag1dPPfs=",
+    "zh:21585cdd4e9ab005a1191ef4f34d71d0f3574af436787a4e9a61d2d93f2c0f4d",
+    "zh:41d4cbdfc5679feffe534ff8809e056930291cad264afc00936843dfd30eacfa",
+    "zh:52e0149ca0a94a8e1d19b6e85b82b945634e9cac7e37d0672196e88011a14948",
+    "zh:5d5f0f1f7b213f0e4d3625dbfce7d4234afb526dcc0eec3c908e030c413e70f1",
+    "zh:61b8d451021511498e49511eab519ead972bdd2dea5e4e2e00078fbfaa3f8163",
+    "zh:625c3e239f6148889cd90efd28ab7f011e333c68a39be63781096c041a99e013",
+    "zh:8578c56690956e8df15f5119fe493ea63cea1eb3fa66ae07c30aae6a59dc703a",
+    "zh:890df766e9b839623b1f0437355032a3c006226a6c200cd911e15ee1a9014e9f",
+    "zh:aaa468ec1d8ad00a6d682e7580cb8a60b3dc10c8cc9e65550f6e3d4a02661473",
+    "zh:c803a29c7b50bc5239765f441b31b0a1375956871ef1487d3c3bcf8a32a6107f",
+    "zh:c868c8eee5c16bd27aa60e3076816105bcb4dd896dfd1c5cadc236ab09c336c5",
+    "zh:d6ce904ab9853a2a450a4697c5385eab67a974bfabc42dbb9bd5707a4dd95136",
+    "zh:dc55a98a3162bd4e178fe9fad152c2ca9f3abc0d7dbfa06bdb02df6895dd9a16",
+    "zh:e831b6b8c7392d200b78e8f358df0d8c4ff3fd5986a361043c6cfc16da2b7f23",
+  ]
+}
