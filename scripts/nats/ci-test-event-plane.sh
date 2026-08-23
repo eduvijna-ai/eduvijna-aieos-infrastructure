@@ -41,7 +41,7 @@ require_cmd() {
 
 require_cmd curl
 require_cmd unzip
-require_cmd ta
+require_cmd tar
 require_cmd git
 
 HAS_PYTHON3=0
