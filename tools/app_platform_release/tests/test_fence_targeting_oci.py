@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from aieos_app_release.errors import OciDigestError, StaleWriteError, TargetCardinalityError
-from aieos_app_release.fence import FenceResult, LiveAppSnapshot, evaluate_stale_write_fence, assert_fence_eligible
+from aieos_app_release.fence import (
+    FenceResult,
+    LiveAppSnapshot,
+    assert_fence_eligible,
+    evaluate_stale_write_fence,
+    normalize_allowed_provider_defaults,
+)
 from aieos_app_release.oci import validate_oci_digest
 from aieos_app_release.targeting import (
     SteadyStatePhysicalIds,
@@ -24,6 +30,7 @@ def _snap(**kwargs) -> LiveAppSnapshot:
         updated_at="2026-08-24T00:00:00Z",
         managed_projection={"name": "aieos-prod-workflow-dispatcher", "region": "blr"},
         secret_key_set=frozenset({"AIEOS_TEMPORAL_API_KEY"}),
+        allowed_provider_defaults=frozenset({"default_ingress_rule"}),
     )
     base.update(kwargs)
     return LiveAppSnapshot(**base)
@@ -36,24 +43,24 @@ def test_equal_double_read_eligible() -> None:
     assert_fence_eligible(a, b)
 
 
-def test_changed_second_read_blocks() -> None:
+def test_allowed_provider_default_only_not_stale() -> None:
+    a = _snap(managed_projection={"name": "x", "region": "blr"})
+    b = _snap(
+        managed_projection={"name": "x", "region": "blr", "default_ingress_rule": "provider-added"},
+        updated_at="2026-08-24T01:00:00Z",
+    )
+    assert "default_ingress_rule" not in normalize_allowed_provider_defaults(
+        b.managed_projection, b.allowed_provider_defaults
+    )
+    assert evaluate_stale_write_fence(a, b) is FenceResult.ELIGIBLE
+
+
+def test_managed_non_secret_difference_blocks() -> None:
     a = _snap()
-    b = _snap(updated_at="2026-08-24T01:00:00Z")
+    b = _snap(managed_projection={"name": "aieos-prod-workflow-dispatcher", "region": "nyc"})
     assert evaluate_stale_write_fence(a, b) is FenceResult.STALE_WRITE
     with pytest.raises(StaleWriteError):
         assert_fence_eligible(a, b)
-
-
-def test_changed_app_identity_blocks() -> None:
-    a = _snap()
-    b = _snap(app_id="55555555-5555-4555-8555-555555555555")
-    assert evaluate_stale_write_fence(a, b) is FenceResult.IDENTITY_CHANGED
-
-
-def test_changed_project_vpc_blocks() -> None:
-    a = _snap()
-    b = _snap(vpc_uuid="66666666-6666-4666-8666-666666666666")
-    assert evaluate_stale_write_fence(a, b) is FenceResult.PHYSICAL_ID_CHANGED
 
 
 def test_secret_key_set_change_blocks() -> None:
@@ -62,7 +69,7 @@ def test_secret_key_set_change_blocks() -> None:
     assert evaluate_stale_write_fence(a, b) is FenceResult.SECRET_KEY_SET_CHANGED
 
 
-def test_secret_value_change_does_not_false_positive() -> None:
+def test_secret_ciphertext_only_non_blocking() -> None:
     a = _snap(
         managed_projection={
             "name": "x",
@@ -73,9 +80,22 @@ def test_secret_value_change_does_not_false_positive() -> None:
         managed_projection={
             "name": "x",
             "env": {"AIEOS_TEMPORAL_API_KEY": "EV[BBBB]"},
-        }
+        },
+        updated_at="2026-08-24T02:00:00Z",
     )
     assert evaluate_stale_write_fence(a, b) is FenceResult.ELIGIBLE
+
+
+def test_changed_app_identity_and_physical_ids() -> None:
+    a = _snap()
+    assert (
+        evaluate_stale_write_fence(a, _snap(app_id="55555555-5555-4555-8555-555555555555"))
+        is FenceResult.IDENTITY_CHANGED
+    )
+    assert (
+        evaluate_stale_write_fence(a, _snap(vpc_uuid="66666666-6666-4666-8666-666666666666"))
+        is FenceResult.PHYSICAL_ID_CHANGED
+    )
 
 
 def test_bootstrap_cardinality() -> None:

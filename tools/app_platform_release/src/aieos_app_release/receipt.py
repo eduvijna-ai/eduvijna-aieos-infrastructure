@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -17,6 +17,7 @@ _UUID_RE = re.compile(
 )
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SECRET_KEY_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 FORBIDDEN_KEYS = frozenset(
     {
@@ -36,8 +37,87 @@ FORBIDDEN_KEYS = frozenset(
         "database_url",
         "temporal_api_key",
         "ev",
+        "dop_v1",
+        "bearer",
     }
 )
+
+_SECRET_VALUE_MARKERS = (
+    "ev[",
+    "bearer ",
+    "authorization:",
+    "postgres://",
+    "postgresql://",
+    "dop_v1_",
+    "eyj",  # JWT-ish
+)
+
+
+ALLOWED_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "app_semantic_name",
+        "app_uuid",
+        "deployment_id",
+        "project_uuid",
+        "vpc_uuid",
+        "architecture_sha",
+        "infrastructure_sha",
+        "backend_sha",
+        "oci_digest",
+        "release_identity",
+        "build_identity",
+        "github_run_id",
+        "github_run_attempt",
+        "concurrency_group",
+        "managed_spec_fingerprint",
+        "secret_key_names",
+        "generation_labels",
+        "provider_request_ids",
+        "drift_classification",
+        "verification_result",
+        "rollback_result",
+        "receipt_sha256",
+    }
+)
+
+
+def _looks_like_secret_value(text: str) -> bool:
+    lowered = text.lower()
+    if any(m in lowered for m in _SECRET_VALUE_MARKERS):
+        return True
+    if text.startswith("EV["):
+        return True
+    if _DIGEST_RE.fullmatch(text) or _SHA_RE.fullmatch(text):
+        return False
+    if re.fullmatch(r"dop_v1_[A-Za-z0-9_\-]{20,}", text):
+        return True
+    if re.fullmatch(r"[A-Za-z0-9_\-]{48,}", text) and not text.startswith("sha256:"):
+        return True
+    return False
+
+
+def _scan_secret_material(obj: Any, path: str = "$", *, allow_schema_keys: bool = False) -> None:
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            key = str(k)
+            key_l = key.lower()
+            if allow_schema_keys and path == "$" and key in ALLOWED_TOP_LEVEL_FIELDS:
+                _scan_secret_material(v, f"{path}.{key}", allow_schema_keys=False)
+                continue
+            if key_l in FORBIDDEN_KEYS or any(
+                bad == key_l or key_l.endswith("_" + bad) for bad in ("password", "token", "pat", "bearer")
+            ):
+                raise ReceiptPolicyError(f"forbidden receipt key at {path}.{key}")
+            if _looks_like_secret_value(key):
+                raise ReceiptPolicyError(f"secret-like receipt key at {path}.{key}")
+            _scan_secret_material(v, f"{path}.{key}", allow_schema_keys=False)
+        return
+    if isinstance(obj, list):
+        for i, v in enumerate(obj):
+            _scan_secret_material(v, f"{path}[{i}]", allow_schema_keys=False)
+        return
+    if isinstance(obj, str) and _looks_like_secret_value(obj):
+        raise ReceiptPolicyError(f"forbidden secret-like value in field {path}")
 
 
 class StrictReceipt(BaseModel):
@@ -98,10 +178,20 @@ class StrictReceipt(BaseModel):
     @classmethod
     def _keys_only(cls, v: list[str]) -> list[str]:
         for item in v:
-            if not item.isupper() and not all(c.isalnum() or c == "_" for c in item):
-                raise ValueError("secret key name invalid")
-            if "EV[" in item or "=" in item:
+            if not _SECRET_KEY_NAME_RE.fullmatch(item):
+                raise ValueError("secret key name must be UPPER_SNAKE_CASE")
+            if "EV[" in item or "=" in item or " " in item:
                 raise ValueError("secret values forbidden in key names")
+        return v
+
+    @field_validator("generation_labels")
+    @classmethod
+    def _labels(cls, v: dict[str, str]) -> dict[str, str]:
+        for k, val in v.items():
+            if not re.fullmatch(r"^[a-z][a-z0-9_]*$", k):
+                raise ValueError("generation label keys must be lowercase_snake")
+            if _looks_like_secret_value(val) or _looks_like_secret_value(k):
+                raise ValueError("generation labels must not contain secret-like material")
         return v
 
     @model_validator(mode="before")
@@ -109,44 +199,19 @@ class StrictReceipt(BaseModel):
     def _forbid_keys(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
-        lowered = {str(k).lower(): k for k in data}
-        for bad in FORBIDDEN_KEYS:
-            if bad in lowered:
-                raise ReceiptPolicyError(f"forbidden receipt field: {lowered[bad]}")
-
-        def _scan(obj: Any, path: str) -> None:
-            if isinstance(obj, str):
-                if obj.startswith("EV[") or "EV[" in obj:
-                    raise ReceiptPolicyError(f"forbidden secret-like value in field {path}")
-                lowered_v = obj.lower()
-                if (
-                    "bearer " in lowered_v
-                    or "authorization:" in lowered_v
-                    or "postgres://" in lowered_v
-                    or "postgresql://" in lowered_v
-                ):
-                    raise ReceiptPolicyError(f"forbidden secret-like value in field {path}")
-                return
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    _scan(v, f"{path}.{k}")
-                return
-            if isinstance(obj, list):
-                for i, v in enumerate(obj):
-                    _scan(v, f"{path}[{i}]")
-
-        for k, v in data.items():
-            _scan(v, str(k))
+        _scan_secret_material(data, allow_schema_keys=True)
         return data
 
 
 def serialize_receipt(receipt: StrictReceipt) -> bytes:
     payload = receipt.model_dump(exclude={"receipt_sha256"})
     assert_no_secret_leak(payload)
+    _scan_secret_material(payload, allow_schema_keys=True)
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
     payload["receipt_sha256"] = f"sha256:{digest}"
     assert_no_secret_leak(payload)
+    _scan_secret_material(payload, allow_schema_keys=True)
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"
     )

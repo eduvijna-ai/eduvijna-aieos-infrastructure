@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -31,8 +32,33 @@ class LiveAppSnapshot:
     allowed_provider_defaults: frozenset[str] = frozenset()
 
 
-def _nonsecret_fingerprint(snap: LiveAppSnapshot) -> str:
-    return fingerprint_managed_spec(snap.managed_projection)
+def normalize_allowed_provider_defaults(
+    projection: dict[str, Any],
+    allowed_defaults: frozenset[str] | set[str],
+) -> dict[str, Any]:
+    """Strip recognized allowed provider-default keys before managed comparison."""
+    data = deepcopy(projection)
+
+    def _strip(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {
+                k: _strip(v)
+                for k, v in obj.items()
+                if k not in allowed_defaults
+            }
+        if isinstance(obj, list):
+            return [_strip(v) for v in obj]
+        return obj
+
+    return _strip(data)
+
+
+def _comparable_fingerprint(snap: LiveAppSnapshot) -> str:
+    normalized = normalize_allowed_provider_defaults(
+        snap.managed_projection,
+        snap.allowed_provider_defaults,
+    )
+    return fingerprint_managed_spec(normalized)
 
 
 def evaluate_stale_write_fence(
@@ -45,11 +71,15 @@ def evaluate_stale_write_fence(
         return FenceResult.PHYSICAL_ID_CHANGED
     if read1.secret_key_set != read2.secret_key_set:
         return FenceResult.SECRET_KEY_SET_CHANGED
-    if read1.updated_at != read2.updated_at:
+    # updated_at alone can move due to provider metadata; require managed fingerprint check
+    # but if updated_at changed AND managed fingerprint (after default normalization) differs → stale
+    fp1 = _comparable_fingerprint(read1)
+    fp2 = _comparable_fingerprint(read2)
+    if fp1 != fp2:
         return FenceResult.STALE_WRITE
-    if _nonsecret_fingerprint(read1) != _nonsecret_fingerprint(read2):
-        # Ignore pure ciphertext / secret-value differences already handled by fingerprint
-        return FenceResult.STALE_WRITE
+    if read1.updated_at != read2.updated_at and fp1 == fp2:
+        # ciphertext-only / metadata-only change with same managed fingerprint → non-blocking
+        return FenceResult.ELIGIBLE
     return FenceResult.ELIGIBLE
 
 

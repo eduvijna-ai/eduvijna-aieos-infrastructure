@@ -126,6 +126,21 @@ Job name (exact): `app-release-controller-validate`
 - Exhaustive offline / adversarial tests
 - Credential-free CI job
 
+## WPI-AP-DP-I01R1 corrective hardenings
+
+Fail-closed repairs on the same library/contracts/tests surface:
+
+- SecretValue-backed provider credential; client/result repr redacted
+- MutationResult retains only sanitized non-secret identifiers (no raw bodies)
+- Provider READ EV[...] sanitized to SecretValue before caller use
+- Removed public `delete_app` / `restart_app` / `request` stubs
+- Exact steady-state / bootstrap / forbidden scope and operations.forbidden sets
+- Paginated `GET /v2/apps` + local semantic-name cardinality
+- Paginated registry digests list with exact digest match (no default-true)
+- Typed rollback validate / start / commit paths; verify is read-only only
+- CREATE reconciliation requires project+VPC+fingerprint evidence (name alone insufficient)
+- Allowed provider-default normalization integrated into stale-write fence
+
 ## What I01 explicitly does NOT authorize
 
 | Item | Status |

@@ -96,6 +96,8 @@ def test_reconciliation_classifications() -> None:
             expected_app_id=DUMMY_APP_ID,
             expected_managed_fingerprint=fp,
             expected_deployment_id=None,
+            expected_project_uuid=None,
+            expected_vpc_uuid=None,
             current_apps=[{"id": DUMMY_APP_ID, "name": "aieos-prod-workflow-dispatcher"}],
             current_app={"id": DUMMY_APP_ID, "managed_projection": managed},
             deployments=[],
@@ -111,6 +113,8 @@ def test_reconciliation_classifications() -> None:
             expected_app_id=None,
             expected_managed_fingerprint=fp,
             expected_deployment_id=None,
+            expected_project_uuid="22222222-2222-4222-8222-222222222222",
+            expected_vpc_uuid="33333333-3333-4333-8333-333333333333",
             current_apps=[],
             current_app=None,
             deployments=[],
@@ -118,12 +122,83 @@ def test_reconciliation_classifications() -> None:
     )
     assert not_committed.classification is ReconciliationClass.NOT_COMMITTED
 
+    # name alone insufficient for CREATE COMMITTED
+    name_only = reconcile_mutation_result(
+        ReconciliationInput(
+            expected_app_name="aieos-prod-workflow-dispatcher",
+            expected_app_id=None,
+            expected_managed_fingerprint=fp,
+            expected_deployment_id=None,
+            expected_project_uuid=None,
+            expected_vpc_uuid=None,
+            current_apps=[
+                {
+                    "id": DUMMY_APP_ID,
+                    "name": "aieos-prod-workflow-dispatcher",
+                    "managed_projection": managed,
+                }
+            ],
+            current_app=None,
+            deployments=[],
+        )
+    )
+    assert name_only.classification is ReconciliationClass.AMBIGUOUS
+
+    # racing / out-of-band creator with full evidence still binds; mismatch project => AMBIGUOUS
+    racing = reconcile_mutation_result(
+        ReconciliationInput(
+            expected_app_name="aieos-prod-workflow-dispatcher",
+            expected_app_id=None,
+            expected_managed_fingerprint=fp,
+            expected_deployment_id=None,
+            expected_project_uuid="22222222-2222-4222-8222-222222222222",
+            expected_vpc_uuid="33333333-3333-4333-8333-333333333333",
+            current_apps=[
+                {
+                    "id": DUMMY_APP_ID,
+                    "name": "aieos-prod-workflow-dispatcher",
+                    "project_id": "99999999-9999-4999-8999-999999999999",
+                    "vpc_uuid": "33333333-3333-4333-8333-333333333333",
+                    "managed_projection": managed,
+                }
+            ],
+            current_app=None,
+            deployments=[],
+        )
+    )
+    assert racing.classification is ReconciliationClass.AMBIGUOUS
+
+    create_committed = reconcile_mutation_result(
+        ReconciliationInput(
+            expected_app_name="aieos-prod-workflow-dispatcher",
+            expected_app_id=None,
+            expected_managed_fingerprint=fp,
+            expected_deployment_id=None,
+            expected_project_uuid="22222222-2222-4222-8222-222222222222",
+            expected_vpc_uuid="33333333-3333-4333-8333-333333333333",
+            current_apps=[
+                {
+                    "id": DUMMY_APP_ID,
+                    "name": "aieos-prod-workflow-dispatcher",
+                    "project_id": "22222222-2222-4222-8222-222222222222",
+                    "vpc_uuid": "33333333-3333-4333-8333-333333333333",
+                    "managed_projection": managed,
+                }
+            ],
+            current_app=None,
+            deployments=[],
+        )
+    )
+    assert create_committed.classification is ReconciliationClass.COMMITTED
+
     conflict = reconcile_mutation_result(
         ReconciliationInput(
             expected_app_name="aieos-prod-workflow-dispatcher",
             expected_app_id=None,
             expected_managed_fingerprint=fp,
             expected_deployment_id=None,
+            expected_project_uuid="22222222-2222-4222-8222-222222222222",
+            expected_vpc_uuid="33333333-3333-4333-8333-333333333333",
             current_apps=[
                 {"id": "11111111-1111-4111-8111-111111111111", "name": "aieos-prod-workflow-dispatcher"},
                 {"id": "22222222-2222-4222-8222-222222222222", "name": "aieos-prod-workflow-dispatcher"},
@@ -140,6 +215,8 @@ def test_reconciliation_classifications() -> None:
             expected_app_id=DUMMY_APP_ID,
             expected_managed_fingerprint=fp,
             expected_deployment_id=None,
+            expected_project_uuid=None,
+            expected_vpc_uuid=None,
             current_apps=[],
             current_app=None,
             deployments=[],
@@ -180,13 +257,13 @@ def test_no_doctl_curl_strings_as_execution() -> None:
 def test_mock_transport_only_no_live_do() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "api.digitalocean.com"
-        return httpx.Response(200, json={"apps": []})
+        return httpx.Response(200, json={"apps": [], "links": {}})
 
     with DigitalOceanAppClient(
         token="dummy",
         transport=httpx.MockTransport(handler),
     ) as c:
-        c.list_apps_by_name("aieos-prod-workflow-dispatcher")
+        c.list_apps()
 
 
 def test_production_credential_env_absent(monkeypatch: pytest.MonkeyPatch) -> None:

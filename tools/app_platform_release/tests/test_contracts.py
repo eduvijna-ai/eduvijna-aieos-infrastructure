@@ -163,6 +163,41 @@ def test_runtime_release_plane_disagreement_rejected() -> None:
         cross_validate_contracts(_R(), release)  # type: ignore[arg-type]
 
 
+def test_exact_scope_and_forbidden_sets() -> None:
+    data = _load_raw(RELEASE_CONTRACT)
+    # missing member
+    missing = copy.deepcopy(data)
+    missing["credentials"]["steady_state_scopes"] = [
+        s for s in missing["credentials"]["steady_state_scopes"] if s != "vpc:read"
+    ]
+    with pytest.raises(Exception):
+        ProductionReleasePlaneContract.model_validate(missing)
+    # extra member
+    extra = copy.deepcopy(data)
+    extra["credentials"]["steady_state_scopes"] = list(extra["credentials"]["steady_state_scopes"]) + [
+        "app:delete"
+    ]
+    with pytest.raises(Exception):
+        ProductionReleasePlaneContract.model_validate(extra)
+    # dangerous bootstrap authority
+    danger = copy.deepcopy(data)
+    danger["credentials"]["bootstrap_additional_scopes"] = ["app:create", "app:delete"]
+    with pytest.raises(Exception):
+        ProductionReleasePlaneContract.model_validate(danger)
+    # forbidden ops exact
+    bad_forbid = copy.deepcopy(data)
+    bad_forbid["operations"]["forbidden"] = list(bad_forbid["operations"]["forbidden"]) + ["FORCE"]
+    with pytest.raises(Exception):
+        ProductionReleasePlaneContract.model_validate(bad_forbid)
+    # missing forbidden member
+    miss_forbid = copy.deepcopy(data)
+    miss_forbid["operations"]["forbidden"] = [
+        x for x in miss_forbid["operations"]["forbidden"] if x != "DELETE"
+    ]
+    with pytest.raises(Exception):
+        ProductionReleasePlaneContract.model_validate(miss_forbid)
+
+
 def test_self_hosted_forbidden_in_contract() -> None:
     release = load_release_plane_contract(RELEASE_CONTRACT)
     assert release.runtime.self_hosted_production_runner == "forbidden"

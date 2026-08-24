@@ -156,3 +156,13 @@ def test_receipt_rejects_secrets_and_forbidden() -> None:
                 generation_labels={"db": "postgresql://u:p@host/db"},
             )
         )
+    # dummy PAT / Temporal key / Bearer / EV cannot serialize into receipt
+    for poison in (
+        {"generation_labels": {"k": "dop_v1_DUMMY_PAT_VALUE_NOT_REAL_ABCDEFGHIJKLMNOP"}},
+        {"generation_labels": {"k": "Bearer eyJhbGciOiJIUzI1NiJ9.dummy.signature"}},
+        {"generation_labels": {"k": "EV[ABCDEFGHIJKLMNOP]"}},
+        {"generation_labels": {"k": "postgresql://u:p@host/db"}},
+        {"generation_labels": {"temporal_api_key": "safe"}},  # forbidden-ish key
+    ):
+        with pytest.raises((ReceiptPolicyError, Exception)):
+            StrictReceipt(**_receipt_kwargs(**poison))

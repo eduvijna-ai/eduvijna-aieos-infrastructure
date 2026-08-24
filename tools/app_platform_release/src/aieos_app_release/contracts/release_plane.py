@@ -140,17 +140,35 @@ class MethodPathAuthority(StrictModel):
     ROLLBACK: MethodPathRollback
 
 
-class OperationsContract(StrictModel):
-    allowed: list[Literal["CREATE", "UPDATE", "ROTATE_SECRET", "ROLLBACK"]]
-    method_path_authority: MethodPathAuthority
-    forbidden: list[str]
-
-    @field_validator("allowed")
-    @classmethod
-    def _allowed(cls, v: list[str]) -> list[str]:
-        if set(v) != {"CREATE", "UPDATE", "ROTATE_SECRET", "ROLLBACK"}:
-            raise ValueError("allowed operations mismatch")
-        return v
+STEADY_STATE_SCOPES = (
+    "app:update",
+    "app:read",
+    "regions:read",
+    "sizes:read",
+    "actions:read",
+    "project:read",
+    "vpc:read",
+    "registry:read",
+)
+BOOTSTRAP_ADDITIONAL_SCOPES = (
+    "app:create",
+    "project:assign_resource",
+)
+FORBIDDEN_NORMAL_AUTHORITY = (
+    "app:delete",
+    "app:access_console",
+    "broad_api_write",
+    "registry_mutation",
+    "vpc_mutation",
+    "broad_project_mutation",
+)
+OPERATIONS_FORBIDDEN = (
+    "DELETE",
+    "restart",
+    "console",
+    "arbitrary_method",
+    "arbitrary_endpoint",
+)
 
 
 class CredentialsContract(StrictModel):
@@ -179,6 +197,47 @@ class CredentialsContract(StrictModel):
         }
         if set(v) != expected:
             raise ValueError("pat_logical_classes mismatch")
+        return v
+
+    @field_validator("steady_state_scopes")
+    @classmethod
+    def _steady(cls, v: list[str]) -> list[str]:
+        if list(v) != list(STEADY_STATE_SCOPES):
+            raise ValueError("steady_state_scopes must match exact ADR-050 set")
+        return v
+
+    @field_validator("bootstrap_additional_scopes")
+    @classmethod
+    def _bootstrap(cls, v: list[str]) -> list[str]:
+        if list(v) != list(BOOTSTRAP_ADDITIONAL_SCOPES):
+            raise ValueError("bootstrap_additional_scopes must match exact ADR-050 set")
+        return v
+
+    @field_validator("forbidden_normal_authority")
+    @classmethod
+    def _forbidden_auth(cls, v: list[str]) -> list[str]:
+        if list(v) != list(FORBIDDEN_NORMAL_AUTHORITY):
+            raise ValueError("forbidden_normal_authority must match exact ADR-050 set")
+        return v
+
+
+class OperationsContract(StrictModel):
+    allowed: list[Literal["CREATE", "UPDATE", "ROTATE_SECRET", "ROLLBACK"]]
+    method_path_authority: MethodPathAuthority
+    forbidden: list[str]
+
+    @field_validator("allowed")
+    @classmethod
+    def _allowed(cls, v: list[str]) -> list[str]:
+        if set(v) != {"CREATE", "UPDATE", "ROTATE_SECRET", "ROLLBACK"}:
+            raise ValueError("allowed operations mismatch")
+        return v
+
+    @field_validator("forbidden")
+    @classmethod
+    def _forbidden_ops(cls, v: list[str]) -> list[str]:
+        if list(v) != list(OPERATIONS_FORBIDDEN):
+            raise ValueError("operations.forbidden must match exact ADR-050 set")
         return v
 
 

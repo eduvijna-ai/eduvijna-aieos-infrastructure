@@ -23,6 +23,8 @@ class ReconciliationInput:
     expected_app_id: str | None
     expected_managed_fingerprint: str
     expected_deployment_id: str | None
+    expected_project_uuid: str | None
+    expected_vpc_uuid: str | None
     current_apps: list[dict[str, Any]]
     current_app: dict[str, Any] | None
     deployments: list[dict[str, Any]]
@@ -35,17 +37,53 @@ class ReconciliationDecision:
     mutate_again: bool = False
 
 
+def _app_name(app: dict[str, Any]) -> str | None:
+    spec = app.get("spec")
+    if isinstance(spec, dict) and isinstance(spec.get("name"), str):
+        return spec["name"]
+    name = app.get("name")
+    return name if isinstance(name, str) else None
+
+
+def _app_project(app: dict[str, Any]) -> str | None:
+    for key in ("project_id", "project_uuid"):
+        val = app.get(key)
+        if isinstance(val, str):
+            return val
+    return None
+
+
+def _app_vpc(app: dict[str, Any]) -> str | None:
+    for key in ("vpc_uuid", "vpc_id"):
+        val = app.get(key)
+        if isinstance(val, str):
+            return val
+    spec = app.get("spec")
+    if isinstance(spec, dict):
+        ingress = spec.get("ingress") or spec.get("vpc")
+        if isinstance(ingress, dict) and isinstance(ingress.get("id"), str):
+            return ingress["id"]
+        if isinstance(spec.get("vpc_uuid"), str):
+            return spec["vpc_uuid"]
+    return None
+
+
+def _managed_from_app(app: dict[str, Any]) -> dict[str, Any] | None:
+    managed = app.get("managed_projection")
+    if isinstance(managed, dict):
+        return managed
+    spec = app.get("spec")
+    if isinstance(spec, dict):
+        return spec
+    return None
+
+
 def reconcile_mutation_result(inp: ReconciliationInput) -> ReconciliationDecision:
     """Classify provider observations. Never mutates. Never auto-retries mutation."""
-    matches = [
-        a
-        for a in inp.current_apps
-        if a.get("spec", {}).get("name") == inp.expected_app_name
-        or a.get("name") == inp.expected_app_name
-    ]
+    matches = [a for a in inp.current_apps if _app_name(a) == inp.expected_app_name]
 
     if inp.expected_app_id is None:
-        # CREATE reconciliation
+        # CREATE reconciliation — name alone is insufficient for COMMITTED
         if len(matches) == 0:
             return ReconciliationDecision(
                 ReconciliationClass.NOT_COMMITTED,
@@ -59,9 +97,49 @@ def reconcile_mutation_result(inp: ReconciliationInput) -> ReconciliationDecisio
                 mutate_again=False,
             )
         app = matches[0]
+        managed = _managed_from_app(app)
+        if managed is None:
+            return ReconciliationDecision(
+                ReconciliationClass.AMBIGUOUS,
+                "CREATE observed name but managed projection unavailable",
+                mutate_again=False,
+            )
+        if inp.expected_project_uuid is None or inp.expected_vpc_uuid is None:
+            return ReconciliationDecision(
+                ReconciliationClass.AMBIGUOUS,
+                "CREATE reconciliation missing authorized project/VPC evidence",
+                mutate_again=False,
+            )
+        if _app_project(app) != inp.expected_project_uuid:
+            return ReconciliationDecision(
+                ReconciliationClass.AMBIGUOUS,
+                "CREATE observed App project evidence insufficient/mismatch",
+                mutate_again=False,
+            )
+        if _app_vpc(app) != inp.expected_vpc_uuid:
+            return ReconciliationDecision(
+                ReconciliationClass.AMBIGUOUS,
+                "CREATE observed App VPC evidence insufficient/mismatch",
+                mutate_again=False,
+            )
+        fp = fingerprint_managed_spec(managed)
+        if fp != inp.expected_managed_fingerprint:
+            return ReconciliationDecision(
+                ReconciliationClass.AMBIGUOUS,
+                "CREATE observed App managed fingerprint mismatch",
+                mutate_again=False,
+            )
+        if inp.expected_deployment_id:
+            dep_ids = {str(d.get("id")) for d in inp.deployments}
+            if inp.expected_deployment_id not in dep_ids:
+                return ReconciliationDecision(
+                    ReconciliationClass.AMBIGUOUS,
+                    "CREATE missing expected deployment identity",
+                    mutate_again=False,
+                )
         return ReconciliationDecision(
             ReconciliationClass.COMMITTED,
-            f"create observed app_id={app.get('id')}",
+            "CREATE bound by name+project+VPC+managed fingerprint",
             mutate_again=False,
         )
 
@@ -87,8 +165,8 @@ def reconcile_mutation_result(inp: ReconciliationInput) -> ReconciliationDecisio
             mutate_again=False,
         )
 
-    managed = inp.current_app.get("managed_projection") or inp.current_app.get("spec") or {}
-    if not isinstance(managed, dict):
+    managed = _managed_from_app(inp.current_app)
+    if managed is None:
         return ReconciliationDecision(
             ReconciliationClass.AMBIGUOUS,
             "managed projection unavailable",
@@ -104,14 +182,13 @@ def reconcile_mutation_result(inp: ReconciliationInput) -> ReconciliationDecisio
 
     if inp.expected_deployment_id:
         dep_ids = {str(d.get("id")) for d in inp.deployments}
-        if inp.expected_deployment_id in dep_ids:
+        if inp.expected_deployment_id in dep_ids and fp == inp.expected_managed_fingerprint:
             return ReconciliationDecision(
                 ReconciliationClass.COMMITTED,
-                "expected deployment id present",
+                "expected deployment id present with matching fingerprint",
                 mutate_again=False,
             )
 
-    # Fingerprint mismatch without confirming deployment evidence
     if not inp.deployments and fp != inp.expected_managed_fingerprint:
         return ReconciliationDecision(
             ReconciliationClass.NOT_COMMITTED,
