@@ -26,6 +26,11 @@ if find . -type f -name '*.auto.tfvars' ! -name '*.example' ! -path './.git/*' |
   fail "committed *.auto.tfvars is forbidden"
 fi
 
+# Disallow committed saved plans / plan JSON
+if find . -type f \( -name '*.tfplan' -o -name '*plan.json' -o -name '*.plan' \) ! -path './.git/*' | grep -q .; then
+  fail "committed saved plans / plan json are forbidden"
+fi
+
 # Disallow apply/destroy in CI scripts/workflows
 if grep -RInE --include='*.yml' --include='*.yaml' --include='*.sh' \
   --exclude-dir='.git' \
@@ -51,6 +56,15 @@ if grep -RInE --exclude-dir='.git' --exclude-dir='.terraform' \
   --include='*.env' --include='*.json' --include='*.txt' --include='*.properties' \
   .; then
   fail "possible committed Temporal API key value assignment"
+fi
+
+# Disallow committed registry credentials or obvious runtime secret-bearing files
+if grep -RInE --exclude-dir='.git' --exclude-dir='.terraform' \
+  --include='*.yml' --include='*.yaml' --include='*.tf' --include='*.tfvars' \
+  --include='*.env' --include='*.json' --include='*.txt' --include='*.properties' \
+  '(DOCKER_AUTH_CONFIG|REGISTRY_PASSWORD|REGISTRY_TOKEN|REGISTRY_CREDENTIAL|DOCR_TOKEN|DIGITALOCEAN_TOKEN)[[:space:]]*[:=][[:space:]]*["'\'']?[A-Za-z0-9+/=._-]{20,}' \
+  .; then
+  fail "possible committed registry or DigitalOcean credential value"
 fi
 
 # Disallow committed Temporal credential dump filenames

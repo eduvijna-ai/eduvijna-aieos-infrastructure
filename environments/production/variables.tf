@@ -9,27 +9,42 @@ variable "do_project_name" {
   default     = "AIEOS"
 }
 
-variable "vpc_name" {
+variable "production_vpc_name" {
   type        = string
-  description = "Logical name for the NEW dedicated production VPC."
+  description = "Frozen production VPC name from ADR-AIEOS-048. Must not be changed without a later governed source revision."
   default     = "aieos-prod-blr1"
+
+  validation {
+    condition     = var.production_vpc_name == "aieos-prod-blr1"
+    error_message = "production_vpc_name is architecture-frozen to aieos-prod-blr1."
+  }
 }
 
-variable "vpc_region" {
+variable "production_vpc_region" {
   type        = string
-  description = "DigitalOcean region slug for production VPC and AIStor."
+  description = "Frozen DigitalOcean region slug for the dedicated production VPC and AIStor."
   default     = "blr1"
+
+  validation {
+    condition     = var.production_vpc_region == "blr1"
+    error_message = "production_vpc_region is architecture-frozen to blr1."
+  }
 }
 
-variable "vpc_ip_range" {
+variable "production_vpc_ip_range" {
   type        = string
   description = <<-EOT
-    Candidate production VPC CIDR. MUST be explicitly collision-checked against
-    existing account VPCs (including default-blr1 10.122.0.0/20 and DOKS
-    cluster/service subnets) before any apply. This value is not frozen until
-    that proof exists.
+    Frozen dedicated production VPC CIDR from ADR-AIEOS-048. Collision proof
+    against existing account VPCs (including default-blr1 10.122.0.0/20 and
+    DOKS cluster/service subnets) remains a pre-apply operational gate, but
+    this root must not silently drift away from 10.130.0.0/20.
   EOT
   default     = "10.130.0.0/20"
+
+  validation {
+    condition     = var.production_vpc_ip_range == "10.130.0.0/20"
+    error_message = "production_vpc_ip_range is architecture-frozen to 10.130.0.0/20."
+  }
 }
 
 variable "aistor_droplet_name" {
@@ -105,11 +120,41 @@ variable "tags" {
   ]
 }
 
-variable "enable_cloud_resources" {
+variable "enable_production_vpc" {
   type        = bool
   description = <<-EOT
-    Hard guard: keep false until Chief Architect authorizes a production apply.
-    When false, modules are not instantiated (modeled-only foundation).
+    Independent production VPC activation guard. Default false = source
+    modeling only. No other slice is implicitly enabled by this guard.
+  EOT
+  default     = false
+}
+
+variable "enable_aistor_resources" {
+  type        = bool
+  description = <<-EOT
+    Independent AIStor activation guard. Default false = source modeling only.
+    Requires enable_production_vpc = true; does not implicitly enable any other
+    production slice.
+  EOT
+  default     = false
+}
+
+variable "enable_workflow_dispatcher_app" {
+  type        = bool
+  description = <<-EOT
+    Independent WORKFLOW_DISPATCHER App Platform activation guard. Default
+    false = source modeling only. Requires enable_production_vpc = true and a
+    non-null immutable aieos_backend_image_digest.
+  EOT
+  default     = false
+}
+
+variable "enable_temporal_worker_app" {
+  type        = bool
+  description = <<-EOT
+    Independent TEMPORAL_WORKER App Platform activation guard. Default false =
+    source modeling only. Requires enable_production_vpc = true and a non-null
+    immutable aieos_backend_image_digest.
   EOT
   default     = false
 }
@@ -120,11 +165,30 @@ variable "enable_temporal_cloud_resources" {
     Independent Temporal Cloud activation guard (WPI-I01).
     Default false = source modeling only.
     Setting true requires a later explicit Chief Architect production
-    Temporal Cloud provisioning gate. Independent from DigitalOcean
-    enable_cloud_resources. Does NOT authorize API-key issuance, commercial
-    enrollment, plan, or apply by itself.
+    Temporal Cloud provisioning gate. Independent from DigitalOcean App
+    Platform / VPC / AIStor guards. Does NOT authorize API-key issuance,
+    commercial enrollment, plan, or apply by itself.
   EOT
   default     = false
+}
+
+variable "aieos_backend_image_digest" {
+  type        = string
+  description = <<-EOT
+    Common immutable Backend OCI digest for both first-production App Platform
+    worker applications. Null keeps source fail-closed by default. Mutable
+    tags, latest, and tag-only identity are forbidden production authority.
+  EOT
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.aieos_backend_image_digest == null ||
+      can(regex("^sha256:[0-9a-f]{64}$", var.aieos_backend_image_digest))
+    )
+    error_message = "aieos_backend_image_digest must be null or match ^sha256:[0-9a-f]{64}$."
+  }
 }
 
 variable "temporal_cloud_allowed_account_id" {

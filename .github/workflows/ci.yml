@@ -45,17 +45,23 @@ jobs:
       - name: Validate
         run: tofu validate
 
-      - name: Prove enable_cloud_resources remains false by default
+      - name: Prove independent DigitalOcean production guards remain false by default
         working-directory: .
         run: |
-          awk '/variable "enable_cloud_resources"/,/^}/' environments/production/variables.tf \
-            | grep -E '^\s*default\s*=\s*false\s*$'
+          for v in enable_production_vpc enable_aistor_resources enable_workflow_dispatcher_app enable_temporal_worker_app; do
+            awk "/variable \"${v}\"/,/^}/" environments/production/variables.tf \
+              | grep -E '^\s*default\s*=\s*false\s*$'
+          done
 
       - name: Prove enable_temporal_cloud_resources remains false by default
         working-directory: .
         run: |
           awk '/variable "enable_temporal_cloud_resources"/,/^}/' environments/production/variables.tf \
             | grep -E '^\s*default\s*=\s*false\s*$'
+
+      - name: Validate App Platform first-production source static proofs
+        working-directory: .
+        run: bash scripts/app-platform/validate-source.sh
 
       - name: Prove lockfile pins DigitalOcean 2.99.1 and Temporal Cloud 1.7.0
         working-directory: .
@@ -64,7 +70,7 @@ jobs:
           grep -q 'version.*=.*"2.99.1"' environments/production/.terraform.lock.hcl
           grep -q 'version.*=.*"1.7.0"' environments/production/.terraform.lock.hcl
 
-      - name: Prove CI has no DigitalOcean or Temporal Cloud credentials
+      - name: Prove CI has no DigitalOcean, Temporal Cloud, or registry credentials
         run: |
           if [ -n "${DIGITALOCEAN_TOKEN:-}" ]; then
             echo "DIGITALOCEAN_TOKEN must not be present in foundation CI" >&2
@@ -74,10 +80,22 @@ jobs:
             echo "TEMPORAL_CLOUD_API_KEY must not be present in foundation CI" >&2
             exit 1
           fi
+          if [ -n "${AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_API_KEY:-}" ] || [ -n "${AIEOS_TEMPORAL_API_KEY:-}" ]; then
+            echo "Temporal workload API keys must not be present in foundation CI" >&2
+            exit 1
+          fi
+          if [ -n "${DOCKER_AUTH_CONFIG:-}" ] || [ -n "${REGISTRY_PASSWORD:-}" ] || [ -n "${REGISTRY_TOKEN:-}" ]; then
+            echo "Registry credentials must not be present in foundation CI" >&2
+            exit 1
+          fi
 
       - name: Validate Temporal Cloud provisioning-source static proofs
         working-directory: .
         run: bash scripts/temporal/validate-provisioning-source.sh
+
+      - name: Disposable disabled App/VPC/AIStor plan proof (WPI-AP-I01)
+        working-directory: .
+        run: bash scripts/app-platform/ci-test-disabled-plan.sh
 
       - name: Disposable disabled Temporal provider plan proof (WPI-I01R1)
         working-directory: .

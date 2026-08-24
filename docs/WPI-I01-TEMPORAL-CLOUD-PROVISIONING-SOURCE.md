@@ -121,7 +121,7 @@ Each service account:
 enable_temporal_cloud_resources  # default false
 ```
 
-Independent from DigitalOcean `enable_cloud_resources` (also default **false**).
+Independent from DigitalOcean production slice guards (all default **false**).
 
 `true` requires a later explicit Chief Architect production Temporal Cloud
 provisioning gate. WPI-I01 does not authorize that gate.

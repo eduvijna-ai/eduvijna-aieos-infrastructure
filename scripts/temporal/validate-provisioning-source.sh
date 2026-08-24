@@ -71,10 +71,12 @@ grep -q 'registry.opentofu.org/temporalio/temporalcloud' "$LOCK" \
   || grep -q 'registry.terraform.io/temporalio/temporalcloud' "$LOCK" \
   || fail "lockfile must contain temporalcloud provider entry"
 
-# Independent activation guard
-awk '/variable "enable_cloud_resources"/,/^}/' "$VARS" \
-  | grep -E '^\s*default\s*=\s*false\s*$' >/dev/null \
-  || fail "enable_cloud_resources default must be false"
+# Independent activation guards
+for v in enable_production_vpc enable_aistor_resources enable_workflow_dispatcher_app enable_temporal_worker_app; do
+  awk "/variable \"${v}\"/,/^}/" "$VARS" \
+    | grep -E '^\s*default\s*=\s*false\s*$' >/dev/null \
+    || fail "${v} default must be false"
+done
 awk '/variable "enable_temporal_cloud_resources"/,/^}/' "$VARS" \
   | grep -E '^\s*default\s*=\s*false\s*$' >/dev/null \
   || fail "enable_temporal_cloud_resources default must be false"

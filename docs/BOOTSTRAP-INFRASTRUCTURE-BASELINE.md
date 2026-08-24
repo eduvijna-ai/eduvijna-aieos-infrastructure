@@ -77,5 +77,14 @@ estate.
 
 ## Hard OpenTofu guard
 
-`enable_cloud_resources` defaults to `false`. Modules are not instantiated
-until an authorized apply gate flips that flag under Chief Architect review.
+The production root now uses independent default-false mutation guards:
+
+- `enable_production_vpc`
+- `enable_aistor_resources`
+- `enable_workflow_dispatcher_app`
+- `enable_temporal_worker_app`
+- `enable_temporal_cloud_resources`
+
+No guard implicitly enables another production slice. `enable_aistor_resources`
+requires the dedicated production VPC. App Platform workload guards require the
+dedicated production VPC plus one common immutable Backend OCI digest.
