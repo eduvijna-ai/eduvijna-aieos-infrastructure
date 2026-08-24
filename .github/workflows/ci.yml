@@ -48,7 +48,7 @@ jobs:
       - name: Prove independent DigitalOcean production guards remain false by default
         working-directory: .
         run: |
-          for v in enable_production_vpc enable_aistor_resources enable_workflow_dispatcher_app enable_temporal_worker_app; do
+          for v in enable_production_vpc enable_aistor_resources; do
             awk "/variable \"${v}\"/,/^}/" environments/production/variables.tf \
               | grep -E '^\s*default\s*=\s*false\s*$'
           done
@@ -93,7 +93,7 @@ jobs:
         working-directory: .
         run: bash scripts/temporal/validate-provisioning-source.sh
 
-      - name: Disposable disabled App/VPC/AIStor plan proof (WPI-AP-I01)
+      - name: Disposable disabled production-root inert-plan proof (WPI-AP-I02)
         working-directory: .
         run: bash scripts/app-platform/ci-test-disabled-plan.sh
 

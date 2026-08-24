@@ -9,15 +9,14 @@ production_vpc_region   = "blr1"
 production_vpc_ip_range = "10.130.0.0/20"
 
 # Independent production slice guards — remain false until explicitly authorized.
-enable_production_vpc          = false
-enable_aistor_resources        = false
-enable_workflow_dispatcher_app = false
-enable_temporal_worker_app     = false
+# OpenTofu DigitalOcean ownership after ADR-AIEOS-048R2: VPC + AIStor only.
+enable_production_vpc   = false
+enable_aistor_resources = false
 
-# Common immutable OCI digest for both workload apps.
-# Leave null until a later governed OCI publication / deployment gate provides
-# an exact authorized digest.
-aieos_backend_image_digest = null
+# Production App Platform application lifecycle is NOT owned by OpenTofu under
+# ADR-AIEOS-048R2. WORKFLOW_DISPATCHER / TEMPORAL_WORKER deployment authority
+# belongs to the future governed state-free deployment plane and is not expressed
+# as a production OpenTofu activation variable.
 
 # Independent Temporal Cloud guard — remain false until a later Chief Architect
 # Temporal Cloud production provisioning gate. Independent from all DigitalOcean

@@ -139,56 +139,16 @@ variable "enable_aistor_resources" {
   default     = false
 }
 
-variable "enable_workflow_dispatcher_app" {
-  type        = bool
-  description = <<-EOT
-    Independent WORKFLOW_DISPATCHER App Platform activation guard. Default
-    false = source modeling only. Requires enable_production_vpc = true and a
-    non-null immutable aieos_backend_image_digest.
-  EOT
-  default     = false
-}
-
-variable "enable_temporal_worker_app" {
-  type        = bool
-  description = <<-EOT
-    Independent TEMPORAL_WORKER App Platform activation guard. Default false =
-    source modeling only. Requires enable_production_vpc = true and a non-null
-    immutable aieos_backend_image_digest.
-  EOT
-  default     = false
-}
-
 variable "enable_temporal_cloud_resources" {
   type        = bool
   description = <<-EOT
     Independent Temporal Cloud activation guard (WPI-I01).
     Default false = source modeling only.
     Setting true requires a later explicit Chief Architect production
-    Temporal Cloud provisioning gate. Independent from DigitalOcean App
-    Platform / VPC / AIStor guards. Does NOT authorize API-key issuance,
+    Temporal Cloud provisioning gate. Independent from DigitalOcean VPC / AIStor guards. Does NOT authorize API-key issuance,
     commercial enrollment, plan, or apply by itself.
   EOT
   default     = false
-}
-
-variable "aieos_backend_image_digest" {
-  type        = string
-  description = <<-EOT
-    Common immutable Backend OCI digest for both first-production App Platform
-    worker applications. Null keeps source fail-closed by default. Mutable
-    tags, latest, and tag-only identity are forbidden production authority.
-  EOT
-  default     = null
-  nullable    = true
-
-  validation {
-    condition = (
-      var.aieos_backend_image_digest == null ||
-      can(regex("^sha256:[0-9a-f]{64}$", var.aieos_backend_image_digest))
-    )
-    error_message = "aieos_backend_image_digest must be null or match ^sha256:[0-9a-f]{64}$."
-  }
 }
 
 variable "temporal_cloud_allowed_account_id" {

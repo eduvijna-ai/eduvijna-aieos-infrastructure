@@ -81,10 +81,13 @@ The production root now uses independent default-false mutation guards:
 
 - `enable_production_vpc`
 - `enable_aistor_resources`
-- `enable_workflow_dispatcher_app`
-- `enable_temporal_worker_app`
 - `enable_temporal_cloud_resources`
 
 No guard implicitly enables another production slice. `enable_aistor_resources`
-requires the dedicated production VPC. App Platform workload guards require the
-dedicated production VPC plus one common immutable Backend OCI digest.
+requires the dedicated production VPC.
+
+Under **ADR-AIEOS-048R2** / **WPI-AP-I02**, production App Platform
+`digitalocean_app` ownership is **rejected**. WORKFLOW_DISPATCHER /
+TEMPORAL_WORKER lifecycle belongs to the future governed state-free deployment
+plane (**WPI-AP-DP01**) and is **not** expressed as OpenTofu activation
+variables. See [APP-PLATFORM-FIRST-PRODUCTION-SOURCE.md](APP-PLATFORM-FIRST-PRODUCTION-SOURCE.md).
