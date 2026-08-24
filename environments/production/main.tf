@@ -199,7 +199,7 @@ module "workflow_dispatcher_app" {
   source   = "../../modules/app_platform_worker"
   for_each = local.workflow_dispatcher_app_instances
 
-  app_name            = "eduvijna-aieos-prod-workflow-dispatcher"
+  app_name            = "aieos-prod-workflow-dispatcher"
   region              = local.app_platform_region
   project_id          = module.production_project[each.key].project_id
   vpc_id              = module.production_vpc[each.key].vpc_id
@@ -215,7 +215,7 @@ module "temporal_worker_app" {
   source   = "../../modules/app_platform_worker"
   for_each = local.temporal_worker_app_instances
 
-  app_name            = "eduvijna-aieos-prod-temporal-worker"
+  app_name            = "aieos-prod-temporal-worker"
   region              = local.app_platform_region
   project_id          = module.production_project[each.key].project_id
   vpc_id              = module.production_vpc[each.key].vpc_id

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WPI-AP-I01 — static first-production App Platform source proofs.
+# WPI-AP-I01 / WPI-AP-I01R1 — static first-production App Platform source proofs.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,6 +21,13 @@ fail() { echo "APP_PLATFORM_SOURCE_FAIL: $*" >&2; exit 1; }
 ok() { echo "APP_PLATFORM_SOURCE_OK: $*"; }
 
 need_file() { [[ -f "$1" ]] || fail "missing file: $1"; }
+
+assert_provider_name() {
+  local name="$1"
+  local len="${#name}"
+  [[ "$len" -le 32 ]] || fail "app name '${name}' length ${len} exceeds 32"
+  [[ "$name" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ ]] || fail "app name '${name}' fails provider-compatible shape"
+}
 
 for f in "$MAIN" "$VARS" "$OUTS" "$EXAMPLE" "$CI" "$MODULE_MAIN" "$MODULE_VARS" "$CONTRACT" "$DOC" "$README" "$TEMPORAL_VALIDATE"; do
   need_file "$f"
@@ -52,10 +59,33 @@ grep -F 'production_vpc_ip_range == "10.130.0.0/20"' "$VARS" >/dev/null \
 grep -F 'default-blr1' "$DOC" >/dev/null \
   || fail "documentation must forbid default-blr1 reuse"
 
-grep -F 'eduvijna-aieos-prod-workflow-dispatcher' "$MAIN" >/dev/null \
+grep -F 'aieos-prod-workflow-dispatcher' "$MAIN" >/dev/null \
   || fail "workflow dispatcher app name missing"
-grep -F 'eduvijna-aieos-prod-temporal-worker' "$MAIN" >/dev/null \
+grep -F 'aieos-prod-temporal-worker' "$MAIN" >/dev/null \
   || fail "temporal worker app name missing"
+grep -F 'app_name: aieos-prod-workflow-dispatcher' "$CONTRACT" >/dev/null \
+  || fail "contract workflow dispatcher app name missing"
+grep -F 'app_name: aieos-prod-temporal-worker' "$CONTRACT" >/dev/null \
+  || fail "contract temporal worker app name missing"
+grep -F 'naming: ADR-AIEOS-048R1' "$CONTRACT" >/dev/null \
+  || fail "contract must cite ADR-AIEOS-048R1 naming authority"
+grep -F 'base: ADR-AIEOS-048' "$CONTRACT" >/dev/null \
+  || fail "contract must retain ADR-AIEOS-048 base authority"
+
+if grep -RInE --include='*.tf' --include='*.yaml' --include='*.yml' --include='*.example' --include='*.md' --include='*.sh' \
+  --exclude-dir='.git' --exclude='validate-source.sh' \
+  'eduvijna-aieos-prod-' "$ROOT" | grep -q .; then
+  fail "superseded historical App Platform application names must be absent from current source"
+fi
+
+assert_provider_name "aieos-prod-workflow-dispatcher"
+assert_provider_name "aieos-prod-temporal-worker"
+
+grep -F 'length(var.app_name) <= 32' "$MODULE_VARS" >/dev/null \
+  || fail "app_name max-length validation missing"
+grep -F '^[a-z][a-z0-9-]*[a-z0-9]$' "$MODULE_VARS" >/dev/null \
+  || fail "app_name provider-compatible regex validation missing"
+
 grep -F 'python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main' "$MAIN" >/dev/null \
   || fail "workflow dispatcher run command missing"
 grep -F 'python -m aieos.platform.runtime.entrypoints.temporal_worker_main' "$MAIN" >/dev/null \
@@ -113,4 +143,4 @@ grep -F 'apply_authorized: false' "$CONTRACT" >/dev/null \
 grep -F 'deployment_authorized: false' "$CONTRACT" >/dev/null \
   || fail "contract must keep deployment unauthorized"
 
-ok "WPI-AP-I01 static source proofs"
+ok "WPI-AP-I01 / WPI-AP-I01R1 static source proofs"

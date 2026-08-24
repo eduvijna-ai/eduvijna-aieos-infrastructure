@@ -1,9 +1,12 @@
-# WPI-AP-I01 first-production App Platform runtime source contract
-# Authority: ADR-AIEOS-048
+# WPI-AP-I01 / WPI-AP-I01R1 first-production App Platform runtime source contract
+# Base non-naming authority: ADR-AIEOS-048
+# Current naming authority: ADR-AIEOS-048R1
 # Non-secret topology only. No API keys, runtime credentials, or production OCI digest values belong here.
 
 schema_version: "1"
-architecture_authority: ADR-AIEOS-048
+architecture_authority:
+  base: ADR-AIEOS-048
+  naming: ADR-AIEOS-048R1
 environment: production
 
 region: blr
@@ -23,14 +26,14 @@ registry:
 
 workloads:
   workflow_dispatcher:
-    app_name: eduvijna-aieos-prod-workflow-dispatcher
+    app_name: aieos-prod-workflow-dispatcher
     component: worker
     run_command: python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main
     instance_size: apps-s-1vcpu-1gb-fixed
     instance_count: 1
 
   temporal_worker:
-    app_name: eduvijna-aieos-prod-temporal-worker
+    app_name: aieos-prod-temporal-worker
     component: worker
     run_command: python -m aieos.platform.runtime.entrypoints.temporal_worker_main
     instance_size: apps-s-1vcpu-1gb-fixed

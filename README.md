@@ -94,5 +94,5 @@ calculation covering every resource in that apply plus retained estate.
 - [contracts/temporal/production-workflow-plane.yaml](contracts/temporal/production-workflow-plane.yaml) — machine-readable workflow-plane freeze
 - [WPI-I01-TEMPORAL-CLOUD-PROVISIONING-SOURCE.md](docs/WPI-I01-TEMPORAL-CLOUD-PROVISIONING-SOURCE.md) — Temporal Cloud provisioning source model (Namespace + SAs only; no API keys; no apply)
 - [modules/temporal_cloud_workflow_plane/](modules/temporal_cloud_workflow_plane/) — narrowly scoped Temporal Cloud workflow-plane module
-- [APP-PLATFORM-FIRST-PRODUCTION-SOURCE.md](docs/APP-PLATFORM-FIRST-PRODUCTION-SOURCE.md) — ADR-AIEOS-048 source contract (non-secret App Platform topology only; no production plan/apply)
+- [APP-PLATFORM-FIRST-PRODUCTION-SOURCE.md](docs/APP-PLATFORM-FIRST-PRODUCTION-SOURCE.md) — ADR-AIEOS-048 / ADR-AIEOS-048R1 source contract (non-secret App Platform topology only; no production plan/apply)
 - [contracts/app-platform/production-workflow-runtime.yaml](contracts/app-platform/production-workflow-runtime.yaml) — machine-readable first-production App Platform contract

@@ -3,13 +3,15 @@
 **NON_PRODUCTION FOUNDATION**
 
 This document records the infrastructure-source contract authorized by
-ADR-AIEOS-048 and implemented by WPI-AP-I01. It does **not** authorize any
-DigitalOcean mutation, production backend plan, production apply, runtime secret
-injection, OCI publication, or deployment.
+ADR-AIEOS-048 (base non-naming authority) and ADR-AIEOS-048R1 (current App
+Platform naming authority), implemented by WPI-AP-I01 / WPI-AP-I01R1. It does
+**not** authorize any DigitalOcean mutation, production backend plan, production
+apply, runtime secret injection, OCI publication, or deployment.
 
 ## Architecture authority
 
-- Architecture ADR: `ADR-AIEOS-048`
+- Base architecture ADR: `ADR-AIEOS-048`
+- Current naming ADR: `ADR-AIEOS-048R1`
 - Source-design classification: `SOURCE_DESIGN_READY_SPLIT_SECRET_OWNERSHIP`
 - Temporal workflow-plane source remains separate under `ADR-AIEOS-047`
 
@@ -58,10 +60,11 @@ tries to change the name, region, or CIDR without a governed source revision.
 
 ## App topology
 
-OpenTofu models two distinct App Platform applications:
+OpenTofu models two distinct App Platform applications using the
+ADR-AIEOS-048R1 provider-compliant names:
 
-1. `eduvijna-aieos-prod-workflow-dispatcher`
-2. `eduvijna-aieos-prod-temporal-worker`
+1. `aieos-prod-workflow-dispatcher`
+2. `aieos-prod-temporal-worker`
 
 Each app owns exactly one worker component with:
 
