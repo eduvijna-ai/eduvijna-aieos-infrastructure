@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WPI-AP-I01 — disposable disabled-plan proof for App/VPC/AIStor root.
+# WPI-AP-I02 — backendless production-root inert-plan proof (VPC/AIStor/Temporal guards false).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -32,6 +32,7 @@ fi
 
 tofu version | grep -Fq 'OpenTofu v1.12.5' || fail "expected OpenTofu 1.12.5"
 [[ -f "$LOCK" ]] || fail "missing production lockfile"
+[[ ! -e "$ROOT/modules/app_platform_worker" ]] || fail "app_platform_worker module must not exist"
 
 WORKDIR="$(mktemp -d)"
 cleanup() {
@@ -42,7 +43,7 @@ trap cleanup EXIT
 mkdir -p "$WORKDIR/environments/production" "$WORKDIR/modules"
 cp "$PROD/main.tf" "$PROD/variables.tf" "$PROD/outputs.tf" "$PROD/providers.tf" "$PROD/.terraform.lock.hcl" "$WORKDIR/environments/production/"
 cp -r "$ROOT/modules/production_project" "$ROOT/modules/production_vpc" "$ROOT/modules/aistor_bootstrap" \
-  "$ROOT/modules/aistor_network" "$ROOT/modules/app_platform_worker" "$ROOT/modules/temporal_cloud_workflow_plane" \
+  "$ROOT/modules/aistor_network" "$ROOT/modules/temporal_cloud_workflow_plane" \
   "$WORKDIR/modules/"
 
 cd "$WORKDIR/environments/production"
@@ -57,8 +58,6 @@ tofu plan \
   -var='do_project_id=DISABLED-PLAN-DUMMY-PROJECT-ID' \
   -var='enable_production_vpc=false' \
   -var='enable_aistor_resources=false' \
-  -var='enable_workflow_dispatcher_app=false' \
-  -var='enable_temporal_worker_app=false' \
   -var='enable_temporal_cloud_resources=false' \
   >/dev/null
 
@@ -80,6 +79,26 @@ child_modules = planned.get("child_modules", [])
 if resources or child_modules:
     raise SystemExit("expected zero planned root resources/modules in disabled mode")
 
+# Fail closed if any digitalocean_app resource instance appears in plan evidence
+def walk_module(mod):
+    for r in mod.get("resources", []) or []:
+        yield r
+    for child in mod.get("child_modules", []) or []:
+        yield from walk_module(child)
+
+for r in walk_module(planned):
+    if r.get("type") == "digitalocean_app":
+        raise SystemExit("disabled plan must contain ZERO digitalocean_app planned resources")
+
+for rc in resource_changes:
+    if rc.get("type") == "digitalocean_app":
+        raise SystemExit("disabled plan must contain ZERO digitalocean_app resource_changes")
+
+cfg_root = (plan.get("configuration") or {}).get("root_module") or {}
+for r in walk_module(cfg_root):
+    if r.get("type") == "digitalocean_app":
+        raise SystemExit("disabled plan must contain ZERO digitalocean_app configuration resources")
+
 checks = plan.get("checks", [])
 failed = [
     c for c in checks
@@ -89,4 +108,4 @@ if failed:
     raise SystemExit(f"unexpected failing checks: {failed}")
 PY
 
-ok "disabled plan: zero managed/data changes, zero provider credentials, zero backend access"
+ok "inert plan: zero managed/data changes, zero digitalocean_app, zero provider credentials, zero backend access"

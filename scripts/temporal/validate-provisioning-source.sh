@@ -72,7 +72,7 @@ grep -q 'registry.opentofu.org/temporalio/temporalcloud' "$LOCK" \
   || fail "lockfile must contain temporalcloud provider entry"
 
 # Independent activation guards
-for v in enable_production_vpc enable_aistor_resources enable_workflow_dispatcher_app enable_temporal_worker_app; do
+for v in enable_production_vpc enable_aistor_resources; do
   awk "/variable \"${v}\"/,/^}/" "$VARS" \
     | grep -E '^\s*default\s*=\s*false\s*$' >/dev/null \
     || fail "${v} default must be false"

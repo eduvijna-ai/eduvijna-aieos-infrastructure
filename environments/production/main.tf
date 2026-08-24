@@ -1,20 +1,16 @@
 # Production root module — modeled only.
 # All production mutation guards default to false. No apply is authorized by this foundation.
+# ADR-AIEOS-048R2: production App Platform digitalocean_app ownership is REJECTED.
+# App lifecycle belongs to the governed state-free deployment plane (WPI-AP-DP01).
 
 locals {
-  app_platform_region           = "blr"
-  app_platform_vpc_datacenter   = "blr1"
-  app_platform_vpc_required     = true
-  app_platform_dedicated_egress = false
-  production_vpc_name           = "aieos-prod-blr1"
-  production_vpc_region         = "blr1"
-  production_vpc_cidr           = "10.130.0.0/20"
-  app_platform_instance_size    = "apps-s-1vcpu-1gb-fixed"
-  app_platform_instance_count   = 1
-  app_registry_type             = "DOCR"
-  app_image_repository          = "aieos-backend"
+  production_vpc_name   = "aieos-prod-blr1"
+  production_vpc_region = "blr1"
+  production_vpc_cidr   = "10.130.0.0/20"
 
   # Commercial guardrails (list USD, pre-tax, discovered 2026-08-21). Not final full-estate total.
+  # App workload costs remain architecture/commercial evidence under ADR-AIEOS-048R2 even though
+  # OpenTofu no longer owns digitalocean_app resources.
   commercial_retained_usd_mo                = 79.90
   commercial_aistor_node_usd_mo             = 24.00
   commercial_aistor_volumes_usd_mo          = 114.00
@@ -35,15 +31,11 @@ locals {
   # consume the USD 250 DigitalOcean service-charge ceiling (ADR-AIEOS-044).
   commercial_gst_basis              = "STATUTORY_TAXES_TRACKED_SEPARATELY"
   commercial_full_estate_incomplete = true
-  aieos_backend_image_digest_valid = (
-    var.aieos_backend_image_digest != null &&
-    can(regex("^sha256:[0-9a-f]{64}$", var.aieos_backend_image_digest))
-  )
+
+  # OpenTofu DigitalOcean slices after ADR-AIEOS-048R2: VPC + AIStor only.
   any_digitalocean_slice_enabled = (
     var.enable_production_vpc ||
-    var.enable_aistor_resources ||
-    var.enable_workflow_dispatcher_app ||
-    var.enable_temporal_worker_app
+    var.enable_aistor_resources
   )
   production_project_instances = (
     local.any_digitalocean_slice_enabled
@@ -57,20 +49,6 @@ locals {
   )
   aistor_resource_instances = (
     var.enable_aistor_resources && var.enable_production_vpc
-    ? { production = true }
-    : {}
-  )
-  workflow_dispatcher_app_instances = (
-    var.enable_workflow_dispatcher_app &&
-    var.enable_production_vpc &&
-    local.aieos_backend_image_digest_valid
-    ? { production = true }
-    : {}
-  )
-  temporal_worker_app_instances = (
-    var.enable_temporal_worker_app &&
-    var.enable_production_vpc &&
-    local.aieos_backend_image_digest_valid
     ? { production = true }
     : {}
   )
@@ -120,34 +98,6 @@ check "aistor_requires_production_vpc" {
   }
 }
 
-check "workflow_dispatcher_app_requires_production_vpc" {
-  assert {
-    condition     = !var.enable_workflow_dispatcher_app || var.enable_production_vpc
-    error_message = "enable_workflow_dispatcher_app requires enable_production_vpc = true."
-  }
-}
-
-check "temporal_worker_app_requires_production_vpc" {
-  assert {
-    condition     = !var.enable_temporal_worker_app || var.enable_production_vpc
-    error_message = "enable_temporal_worker_app requires enable_production_vpc = true."
-  }
-}
-
-check "workflow_dispatcher_app_requires_common_digest" {
-  assert {
-    condition     = !var.enable_workflow_dispatcher_app || local.aieos_backend_image_digest_valid
-    error_message = "enable_workflow_dispatcher_app requires aieos_backend_image_digest to be a non-null immutable sha256 digest."
-  }
-}
-
-check "temporal_worker_app_requires_common_digest" {
-  assert {
-    condition     = !var.enable_temporal_worker_app || local.aieos_backend_image_digest_valid
-    error_message = "enable_temporal_worker_app requires aieos_backend_image_digest to be a non-null immutable sha256 digest."
-  }
-}
-
 module "production_project" {
   source   = "../../modules/production_project"
   for_each = local.production_project_instances
@@ -193,38 +143,6 @@ module "aistor_network" {
   # Admin source CIDRs are pre-apply configuration — never hard-code developer/home IPs here.
   admin_source_cidrs = []
   s3_source_cidrs    = [var.production_vpc_ip_range]
-}
-
-module "workflow_dispatcher_app" {
-  source   = "../../modules/app_platform_worker"
-  for_each = local.workflow_dispatcher_app_instances
-
-  app_name            = "aieos-prod-workflow-dispatcher"
-  region              = local.app_platform_region
-  project_id          = module.production_project[each.key].project_id
-  vpc_id              = module.production_vpc[each.key].vpc_id
-  instance_size_slug  = local.app_platform_instance_size
-  instance_count      = local.app_platform_instance_count
-  image_registry_type = local.app_registry_type
-  image_repository    = local.app_image_repository
-  image_digest        = var.aieos_backend_image_digest
-  run_command         = "python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main"
-}
-
-module "temporal_worker_app" {
-  source   = "../../modules/app_platform_worker"
-  for_each = local.temporal_worker_app_instances
-
-  app_name            = "aieos-prod-temporal-worker"
-  region              = local.app_platform_region
-  project_id          = module.production_project[each.key].project_id
-  vpc_id              = module.production_vpc[each.key].vpc_id
-  instance_size_slug  = local.app_platform_instance_size
-  instance_count      = local.app_platform_instance_count
-  image_registry_type = local.app_registry_type
-  image_repository    = local.app_image_repository
-  image_digest        = var.aieos_backend_image_digest
-  run_command         = "python -m aieos.platform.runtime.entrypoints.temporal_worker_main"
 }
 
 # Temporal Cloud workflow plane — Namespace + two service accounts only.

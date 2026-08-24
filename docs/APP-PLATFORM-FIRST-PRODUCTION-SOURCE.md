@@ -1,154 +1,110 @@
-# App Platform First-Production Source
+# App Platform first-production source (WPI-AP-I02)
 
-**NON_PRODUCTION FOUNDATION**
+## Authority
 
-This document records the infrastructure-source contract authorized by
-ADR-AIEOS-048 (base non-naming authority) and ADR-AIEOS-048R1 (current App
-Platform naming authority), implemented by WPI-AP-I01 / WPI-AP-I01R1. It does
-**not** authorize any DigitalOcean mutation, production backend plan, production
-apply, runtime secret injection, OCI publication, or deployment.
+| ADR | Role |
+|-----|------|
+| ADR-AIEOS-048 | Base first-production App topology / delivery contract |
+| ADR-AIEOS-048R1 | **CURRENT** provider-compliant naming authority |
+| ADR-AIEOS-048R2 | **CURRENT** App Platform ownership / deployment authority |
 
-## Architecture authority
+## Current ownership (ADR-AIEOS-048R2)
 
-- Base architecture ADR: `ADR-AIEOS-048`
-- Current naming ADR: `ADR-AIEOS-048R1`
-- Source-design classification: `SOURCE_DESIGN_READY_SPLIT_SECRET_OWNERSHIP`
-- Temporal workflow-plane source remains separate under `ADR-AIEOS-047`
+Production OpenTofu **`digitalocean_app` ownership is REJECTED**.
 
-## Activation model
+Empirical basis: disposable provider validation **WPI-AP-SV01R1** against DigitalOcean provider **2.99.1** classified **`FAIL_OPEN_TOFU_SECRET_MATERIAL`** — a refresh-only plan materialized out-of-band encrypted `EV[...]` secret material into OpenTofu plan JSON while HCL contained zero env blocks. Encrypted DigitalOcean `EV[...]` values are treated as **secret material** and must not enter infrastructure plan/state or ordinary deployment evidence.
 
-Legacy `enable_cloud_resources` is removed.
+Production App Platform lifecycle owner:
 
-The production root now uses four independent DigitalOcean slice guards, all
-defaulting to `false`:
+**GOVERNED STATE-FREE DEPLOYMENT PLANE**
+
+Persistent secret-bearing deployment state is **FORBIDDEN**.
+
+Design/implementation of that deployment plane is **pending WPI-AP-DP01** and is **not** authorized by WPI-AP-I02.
+
+## Historical / superseded OpenTofu App ownership
+
+WPI-AP-I01 / WPI-AP-I01R1 previously modeled production App Platform workers as OpenTofu `digitalocean_app` resources via `modules/app_platform_worker` and independent activation guards `enable_workflow_dispatcher_app` / `enable_temporal_worker_app`.
+
+That App ownership portion of Infrastructure `main` at `7a3b5070b138a5224de9594c9926d8cb36aa4507` is:
+
+**ARCHITECTURALLY SUPERSEDED — MUST REMAIN INACTIVE**
+
+WPI-AP-I02 removes those production OpenTofu App resources and the reusable App worker module. Git history remains the historical record.
+
+## What OpenTofu still owns (DigitalOcean)
+
+Independent, fail-closed guards (all default **false**):
 
 - `enable_production_vpc`
 - `enable_aistor_resources`
-- `enable_workflow_dispatcher_app`
-- `enable_temporal_worker_app`
 
-Temporal Cloud remains an independent plane:
+OpenTofu continues to model:
 
-- `enable_temporal_cloud_resources`
+- dedicated production VPC `aieos-prod-blr1` / `blr1` / `10.130.0.0/20` (`default-blr1` reuse **FORBIDDEN**)
+- AIStor Bootstrap resources (requires VPC)
 
-No guard implicitly enables another guard.
+App release desire **must not** instantiate `module.production_project` or any other OpenTofu object merely because an App deployment is wanted.
 
-Fail-closed dependencies:
+## Temporal Cloud
 
-- `enable_aistor_resources` requires `enable_production_vpc = true`
-- `enable_workflow_dispatcher_app` requires `enable_production_vpc = true`
-- `enable_temporal_worker_app` requires `enable_production_vpc = true`
-- both app workload guards require a non-null immutable
-  `aieos_backend_image_digest`
+`enable_temporal_cloud_resources` remains an independent guard (default **false**).
 
-## Frozen dedicated VPC
+`module "temporal_cloud_workflow_plane"` is unchanged by WPI-AP-I02 (`TEMPORAL_RESOURCE_ADDRESS_CHURN = NONE`).
 
-The production App Platform path is bound to the dedicated VPC contract frozen by
-ADR-AIEOS-048:
+## Preserved App topology (deployment contract — not OpenTofu desired-state)
 
-- name: `aieos-prod-blr1`
-- region/datacenter: `blr1`
-- CIDR: `10.130.0.0/20`
-- App Platform region: `blr`
-- VPC required: `true`
-- dedicated egress: `false`
+Machine-readable contract:
 
-`default-blr1` reuse is forbidden.
+[`contracts/app-platform/production-workflow-runtime.yaml`](../contracts/app-platform/production-workflow-runtime.yaml)
 
-The root variable validations intentionally fail closed if a later local override
-tries to change the name, region, or CIDR without a governed source revision.
+| Concern | Frozen value |
+|---------|--------------|
+| Region | `blr` |
+| VPC | `aieos-prod-blr1` / `blr1` / `10.130.0.0/20` |
+| WORKFLOW_DISPATCHER app | `aieos-prod-workflow-dispatcher` |
+| TEMPORAL_WORKER app | `aieos-prod-temporal-worker` |
+| Component | worker |
+| Dispatcher run command | `python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main` |
+| Worker run command | `python -m aieos.platform.runtime.entrypoints.temporal_worker_main` |
+| Instance size | `apps-s-1vcpu-1gb-fixed` |
+| Instance count | 1 each |
+| Registry / repository | `eduvijna-registry` / `aieos-backend` |
+| Image authority | immutable digest only |
+| `deploy_on_push` | false |
 
-## App topology
+Immutable Backend OCI digest authority remains binding under ADR-AIEOS-048 / 048R2 and the deployment contract. It is **not** expressed as a production OpenTofu variable after WPI-AP-I02.
 
-OpenTofu models two distinct App Platform applications using the
-ADR-AIEOS-048R1 provider-compliant names:
+## Commercial model (unchanged)
 
-1. `aieos-prod-workflow-dispatcher`
-2. `aieos-prod-temporal-worker`
+Ownership migration does **not** change the first-production commercial model:
 
-Each app owns exactly one worker component with:
+| Slice | USD/month (list, pre-tax) |
+|-------|---------------------------|
+| AIStor source-modeled | 217.90 |
+| WORKFLOW_DISPATCHER workload | 10.00 |
+| TEMPORAL_WORKER workload | 10.00 |
+| First-production modeled subtotal | **237.90** |
+| Optional +USD 5 registry sensitivity | 242.90 |
+| Operating target | 240 |
+| Hard DigitalOcean service ceiling | 250 |
 
-- size `apps-s-1vcpu-1gb-fixed`
-- instance count `1`
-- one common immutable Backend OCI digest
-- independent lifecycle boundary
+GST/statutory tax treatment remains unchanged and does not consume the USD 250 service ceiling.
 
-The exact run commands are:
+## Authorization fence
 
-- `python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main`
-- `python -m aieos.platform.runtime.entrypoints.temporal_worker_main`
+WPI-AP-I02 is **source / CI / docs / PR only**.
 
-## OCI / DOCR mapping
+**NOT AUTHORIZED:**
 
-The provider schema for DigitalOcean provider `2.99.1` supports the required
-shape using:
-
-- `registry_type = DOCR`
-- `repository = aieos-backend`
-- `digest = sha256:...`
-- `deploy_on_push.enabled = false`
-
-The module intentionally omits:
-
-- `registry`
-- `tag`
-
-Architecture still treats `eduvijna-registry` as the logical existing registry,
-but the provider schema says the `registry` field must be left empty for DOCR.
-
-## Runtime environment ownership fence
-
-OpenTofu owns **NON-SECRET APP TOPOLOGY ONLY** in this slice.
-
-OpenTofu currently owns **ZERO** runtime environment variables for App Platform.
-
-The reusable `modules/app_platform_worker` module contains no:
-
-- `spec.env`
-- `worker.env`
-- secret inputs
-- Temporal API-key inputs
-- generic environment maps
-
-This is deliberate. Provider schema proves only that `value` can be omitted
-syntactically; it does **not** yet prove safe out-of-band secret survival,
-safe drift coexistence, or no plaintext re-materialization in state on later
-refresh/update operations.
-
-Runtime environment ownership remains blocked pending a later provider-behavior
-gate.
-
-## Commercial source posture
-
-Modeled DigitalOcean first-production subtotal:
-
-- retained + AIStor slice base: USD 217.90/month
-- workflow dispatcher app worker: USD 10/month
-- temporal worker app worker: USD 10/month
-- modeled subtotal: USD 237.90/month
-- operating target: USD 240/month
-- hard ceiling: USD 250/month
-
-Optional `+USD 5` registry sensitivity remains sensitivity only, not base bill:
-
-- USD 242.90/month
-
-Registry incremental cost is `UNPROVEN / DO NOT DOUBLE COUNT`.
-
-## Production execution fence
-
-This source slice does **not** authorize:
-
-- production backend access beyond `tofu init -backend=false`
-- production state reads or mutation
-- DigitalOcean API mutation
-- App Platform app creation/update
-- VPC creation
-- DOCR publication
-- Temporal API-key creation
+- production OpenTofu plan / apply / refresh / state access
+- DigitalOcean mutation
+- App Platform application create/update
+- VPC / AIStor creation
+- DOCR / OCI publication
+- Temporal API-key issuance
 - runtime secret injection
-- production deployment
+- deployment / restart
+- WPI-AP-DP01 implementation
 
-Future real-state production planning must keep the existing Temporal workflow
-plane safe: default/false placeholder inputs are not authority to destroy or
-reconcile already-provisioned Temporal resources.
+Production App Platform plan/apply/deployment remains **NOT AUTHORIZED**.

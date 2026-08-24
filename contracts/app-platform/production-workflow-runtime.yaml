@@ -1,29 +1,23 @@
-# WPI-AP-I01 / WPI-AP-I01R1 first-production App Platform runtime source contract
-# Base non-naming authority: ADR-AIEOS-048
-# Current naming authority: ADR-AIEOS-048R1
-# Non-secret topology only. No API keys, runtime credentials, or production OCI digest values belong here.
-
+# WPI-AP-I02 — first-production App Platform runtime deployment contract
+# Architecture: ADR-AIEOS-048 (base) / ADR-AIEOS-048R1 (naming) / ADR-AIEOS-048R2 (ownership)
 schema_version: "1"
 architecture_authority:
   base: ADR-AIEOS-048
   naming: ADR-AIEOS-048R1
+  ownership: ADR-AIEOS-048R2
 environment: production
-
 region: blr
-
 vpc:
   name: aieos-prod-blr1
   datacenter: blr1
   cidr: 10.130.0.0/20
   default_vpc_reuse: false
-
 registry:
   logical_registry: eduvijna-registry
   provider_registry_type: DOCR
   repository: aieos-backend
   production_authority: immutable_digest_only
   deploy_on_push: false
-
 workloads:
   workflow_dispatcher:
     app_name: aieos-prod-workflow-dispatcher
@@ -31,18 +25,24 @@ workloads:
     run_command: python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main
     instance_size: apps-s-1vcpu-1gb-fixed
     instance_count: 1
-
   temporal_worker:
     app_name: aieos-prod-temporal-worker
     component: worker
     run_command: python -m aieos.platform.runtime.entrypoints.temporal_worker_main
     instance_size: apps-s-1vcpu-1gb-fixed
     instance_count: 1
-
+ownership:
+  app_lifecycle: governed_state_free_deployment_plane
+  opentofu_digitalocean_app: rejected
+  persistent_secret_bearing_state_allowed: false
+provider_validation:
+  work_item: WPI-AP-SV01R1
+  provider_version: "2.99.1"
+  classification: FAIL_OPEN_TOFU_SECRET_MATERIAL
+  encrypted_ev_is_secret_material: true
 runtime_environment:
   opentofu_owned: false
   provider_behavior_validation_required: true
-
 production:
   plan_authorized: false
   apply_authorized: false
