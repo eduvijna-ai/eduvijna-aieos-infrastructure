@@ -3,14 +3,25 @@
 
 do_project_id = "REPLACE_WITH_EXISTING_AIEOS_PROJECT_ID"
 
-# Candidate CIDR only — collision proof required before apply.
-vpc_ip_range = "10.130.0.0/20"
+# Frozen production VPC contract from ADR-AIEOS-048.
+production_vpc_name     = "aieos-prod-blr1"
+production_vpc_region   = "blr1"
+production_vpc_ip_range = "10.130.0.0/20"
 
-# HARD GUARD — remain false until Chief Architect authorizes production apply.
-enable_cloud_resources = false
+# Independent production slice guards — remain false until explicitly authorized.
+enable_production_vpc          = false
+enable_aistor_resources        = false
+enable_workflow_dispatcher_app = false
+enable_temporal_worker_app     = false
+
+# Common immutable OCI digest for both workload apps.
+# Leave null until a later governed OCI publication / deployment gate provides
+# an exact authorized digest.
+aieos_backend_image_digest = null
 
 # Independent Temporal Cloud guard — remain false until a later Chief Architect
-# Temporal Cloud production provisioning gate. Independent from DigitalOcean.
+# Temporal Cloud production provisioning gate. Independent from all DigitalOcean
+# production slices.
 enable_temporal_cloud_resources = false
 
 # Temporal inputs remain commented while the guard is false.

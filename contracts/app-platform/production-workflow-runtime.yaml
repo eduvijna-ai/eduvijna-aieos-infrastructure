@@ -1,0 +1,46 @@
+# WPI-AP-I01 first-production App Platform runtime source contract
+# Authority: ADR-AIEOS-048
+# Non-secret topology only. No API keys, runtime credentials, or production OCI digest values belong here.
+
+schema_version: "1"
+architecture_authority: ADR-AIEOS-048
+environment: production
+
+region: blr
+
+vpc:
+  name: aieos-prod-blr1
+  datacenter: blr1
+  cidr: 10.130.0.0/20
+  default_vpc_reuse: false
+
+registry:
+  logical_registry: eduvijna-registry
+  provider_registry_type: DOCR
+  repository: aieos-backend
+  production_authority: immutable_digest_only
+  deploy_on_push: false
+
+workloads:
+  workflow_dispatcher:
+    app_name: eduvijna-aieos-prod-workflow-dispatcher
+    component: worker
+    run_command: python -m aieos.platform.runtime.entrypoints.workflow_dispatcher_main
+    instance_size: apps-s-1vcpu-1gb-fixed
+    instance_count: 1
+
+  temporal_worker:
+    app_name: eduvijna-aieos-prod-temporal-worker
+    component: worker
+    run_command: python -m aieos.platform.runtime.entrypoints.temporal_worker_main
+    instance_size: apps-s-1vcpu-1gb-fixed
+    instance_count: 1
+
+runtime_environment:
+  opentofu_owned: false
+  provider_behavior_validation_required: true
+
+production:
+  plan_authorized: false
+  apply_authorized: false
+  deployment_authorized: false

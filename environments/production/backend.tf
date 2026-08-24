@@ -31,7 +31,7 @@
 #
 # Normal production workload plan: NOT AUTHORIZED
 # Further production apply: NOT AUTHORIZED
-# enable_cloud_resources remains false by default
+# All production mutation guards remain false by default
 #
 # SOURCE REMAINS INTENTIONALLY PARTIAL / NON-SECRET.
 # CI uses: tofu init -backend=false
