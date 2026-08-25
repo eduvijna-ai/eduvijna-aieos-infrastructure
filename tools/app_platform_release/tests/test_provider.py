@@ -19,7 +19,7 @@ from aieos_app_release.provider import (
     sanitize_provider_payload,
 )
 from aieos_app_release.secrets import REDACTED, SecretValue
-from tests.conftest import DUMMY_APP_ID, DUMMY_DIGEST
+from tests.conftest import DUMMY_APP_ID, DUMMY_DIGEST, DUMMY_PROJECT
 
 DUMMY_PAT = "dop_v1_DUMMY_PAT_VALUE_NOT_REAL_ABCDEFGHIJKLMNOP"
 
@@ -51,7 +51,7 @@ def test_token_repr_str_errors_redacted() -> None:
         assert DUMMY_PAT not in repr(c)
         assert DUMMY_PAT not in str(c)
         assert REDACTED in repr(c)
-        result = c.create_app({"name": "x"})
+        result = c.create_app({"name": "x"}, project_id=DUMMY_PROJECT)
         assert DUMMY_PAT not in repr(result)
         assert getattr(result, "body", None) is None
         try:
@@ -93,13 +93,15 @@ def test_arbitrary_app_id_rejected() -> None:
 
 def test_create_update_rotate_one_call() -> None:
     calls: list[tuple[str, str]] = []
+    bodies: list[object] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append((request.method, request.url.path))
+        bodies.append(json.loads(request.content.decode()) if request.content else None)
         return httpx.Response(200, json={"app": {"id": DUMMY_APP_ID}})
 
     with _client(handler) as c:
-        assert c.create_app({"name": "x"}).call_count == 1
+        assert c.create_app({"name": "x"}, project_id=DUMMY_PROJECT).call_count == 1
         assert c.update_app(DUMMY_APP_ID, {"name": "x"}).call_count == 2
         assert c.rotate_secret(DUMMY_APP_ID, {"name": "x"}).call_count == 3
         assert calls == [
@@ -107,7 +109,39 @@ def test_create_update_rotate_one_call() -> None:
             ("PUT", f"/v2/apps/{DUMMY_APP_ID}"),
             ("PUT", f"/v2/apps/{DUMMY_APP_ID}"),
         ]
+        assert bodies[0] == {"project_id": DUMMY_PROJECT, "spec": {"name": "x"}}
         assert c.mutation_call_count == 3
+
+
+def test_create_app_requires_validated_project_uuid() -> None:
+    """CREATE body is exactly {project_id, spec}; missing/malformed project rejects before HTTP."""
+    hits = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hits["n"] += 1
+        body = json.loads(request.content.decode())
+        assert set(body.keys()) == {"project_id", "spec"}
+        assert body == {"project_id": DUMMY_PROJECT, "spec": {"name": "x"}}
+        return httpx.Response(201, json={"app": {"id": DUMMY_APP_ID}})
+
+    with _client(handler) as c:
+        with pytest.raises(TypeError):
+            c.create_app({"name": "x"})  # type: ignore[call-arg]
+        assert hits["n"] == 0
+        with pytest.raises(AllowlistViolationError, match="project"):
+            c.create_app({"name": "x"}, project_id="")
+        assert hits["n"] == 0
+        with pytest.raises(AllowlistViolationError, match="project"):
+            c.create_app({"name": "x"}, project_id="not-a-uuid")
+        assert hits["n"] == 0
+        with pytest.raises(AllowlistViolationError, match="project"):
+            c.create_app({"name": "x"}, project_id="latest")
+        assert hits["n"] == 0
+        result = c.create_app({"name": "x"}, project_id=DUMMY_PROJECT)
+        assert result.outcome is MutationOutcome.SUCCESS
+        assert result.call_count == 1
+        assert hits["n"] == 1
+        assert c.mutation_call_count == 1
 
 
 def test_transport_exception_and_5xx_ambiguous_one_call() -> None:
@@ -115,7 +149,7 @@ def test_transport_exception_and_5xx_ambiguous_one_call() -> None:
         raise httpx.ConnectError("boom")
 
     with _client(boom) as c:
-        r = c.create_app({"name": "x"})
+        r = c.create_app({"name": "x"}, project_id=DUMMY_PROJECT)
         assert r.outcome is MutationOutcome.AMBIGUOUS_RESULT
         assert c.mutation_call_count == 1
 
@@ -147,7 +181,7 @@ def test_read_retry_bounded_mutation_not_retried() -> None:
         data = c.get_app(DUMMY_APP_ID)
         assert data["app"]["id"] == DUMMY_APP_ID
         before = hits["n"]
-        result = c.create_app({"name": "x"})
+        result = c.create_app({"name": "x"}, project_id=DUMMY_PROJECT)
         assert result.outcome is MutationOutcome.AMBIGUOUS_RESULT
         assert hits["n"] == before + 1
 
@@ -170,7 +204,14 @@ def test_app_cardinality_paginated_local_filter() -> None:
                 {"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "aieos-prod-workflow-dispatcher"}},
             ],
             "meta": {"total": 3},
-            "links": {"pages": {"next": "https://api.digitalocean.com/v2/apps?page=2&per_page=200"}},
+            "links": {
+                "pages": {
+                    "next": (
+                        "https://api.digitalocean.com/v2/apps"
+                        "?page=2&per_page=200&with_projects=true"
+                    )
+                }
+            },
         },
         2: {
             "apps": [
@@ -180,17 +221,26 @@ def test_app_cardinality_paginated_local_filter() -> None:
             "links": {"pages": {}},
         },
     }
+    first_seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v2/apps"
         assert "name=" not in str(request.url)
+        assert request.url.params.get("with_projects") == "true"
+        if not first_seen:
+            assert request.url.params.get("page") == "1"
+            assert request.url.params.get("per_page") == "200"
+            first_seen.append(str(request.url))
         page = int(request.url.params.get("page", "1"))
         return httpx.Response(200, json=pages[page])
 
     with _client(handler) as c:
         assert c.count_apps_by_semantic_name("aieos-prod-workflow-dispatcher") == 2
         assert c.count_apps_by_semantic_name("missing") == 0
-
+    assert first_seen
+    assert "page=1" in first_seen[0]
+    assert "per_page=200" in first_seen[0]
+    assert "with_projects=true" in first_seen[0]
 
 def test_app_cardinality_completeness() -> None:
     def complete_zero(request: httpx.Request) -> httpx.Response:
@@ -225,7 +275,14 @@ def test_app_cardinality_completeness() -> None:
         1: {
             "apps": [{"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "a"}}],
             "meta": {"total": 2},
-            "links": {"pages": {"next": "https://api.digitalocean.com/v2/apps?page=2&per_page=200"}},
+            "links": {
+                "pages": {
+                    "next": (
+                        "https://api.digitalocean.com/v2/apps"
+                        "?page=2&per_page=200&with_projects=true"
+                    )
+                }
+            },
         },
         2: {
             "apps": [{"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "b"}}],
@@ -245,7 +302,14 @@ def test_app_cardinality_completeness() -> None:
         1: {
             "apps": [{"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "a"}}],
             "meta": {"total": 2},
-            "links": {"pages": {"next": "https://api.digitalocean.com/v2/apps?page=2&per_page=200"}},
+            "links": {
+                "pages": {
+                    "next": (
+                        "https://api.digitalocean.com/v2/apps"
+                        "?page=2&per_page=200&with_projects=true"
+                    )
+                }
+            },
         },
         2: {
             "apps": [{"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "b"}}],
@@ -302,11 +366,12 @@ def test_app_cardinality_completeness() -> None:
 
 
 def test_pagination_query_allowlist() -> None:
-    """Next-link query surface: only page/per_page with strict decimal integers."""
+    """List Apps allows page/per_page/with_projects=true; other endpoints keep R4 page/per_page only."""
 
     def page1_with_next(next_url: str):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.params.get("page") in (None, "1"):
+                assert request.url.params.get("with_projects") == "true"
                 return httpx.Response(
                     200,
                     json={
@@ -315,6 +380,7 @@ def test_pagination_query_allowlist() -> None:
                         "links": {"pages": {"next": next_url}},
                     },
                 )
+            assert request.url.params.get("with_projects") == "true"
             return httpx.Response(
                 200,
                 json={
@@ -326,15 +392,29 @@ def test_pagination_query_allowlist() -> None:
 
         return handler
 
-    # Accepted provider forms
+    # Accepted List Apps next forms — with_projects=true required on every page URL
     for ok_next in (
-        "https://api.digitalocean.com/v2/apps?page=2",
-        "https://api.digitalocean.com/v2/apps?page=2&per_page=200",
+        "https://api.digitalocean.com/v2/apps?page=2&with_projects=true",
+        "https://api.digitalocean.com/v2/apps?page=2&per_page=200&with_projects=true",
+        "https://api.digitalocean.com/v2/apps?with_projects=true&page=2&per_page=100",
     ):
         with _client(page1_with_next(ok_next)) as c:
             assert len(c.list_apps()) == 2
 
-    # Documented singular DOCR legacy path with page/per_page
+    # Missing / false / duplicate with_projects fail closed for List Apps
+    for bad_next in (
+        "https://api.digitalocean.com/v2/apps?page=2",
+        "https://api.digitalocean.com/v2/apps?page=2&per_page=200",
+        "https://api.digitalocean.com/v2/apps?page=2&per_page=200&with_projects=false",
+        "https://api.digitalocean.com/v2/apps?page=2&with_projects=true&with_projects=true",
+        "https://api.digitalocean.com/v2/apps?with_projects=1&page=2",
+        "https://api.digitalocean.com/v2/apps?page=2&with_projects=",
+    ):
+        with _client(page1_with_next(bad_next)) as c:
+            with pytest.raises(ProviderReadError):
+                c.list_apps()
+
+    # Documented singular DOCR legacy path with page/per_page (R4 — no with_projects)
     other = "sha256:" + ("b" * 64)
     target = DUMMY_DIGEST
     docr_pages = {
@@ -367,21 +447,97 @@ def test_pagination_query_allowlist() -> None:
             registry="eduvijna-registry", repository="aieos-backend", digest=target
         )
 
+    # with_projects remains rejected on DOCR pagination (R4)
+    def docr_with_projects(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": (
+                            "https://api.digitalocean.com/v2/registries/eduvijna-registry"
+                            "/repositories/aieos-backend/digests"
+                            "?page=2&per_page=200&with_projects=true"
+                        )
+                    }
+                },
+            },
+        )
+
+    with _client(docr_with_projects) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    # with_projects remains rejected on deployments pagination (R4)
+    def deployments_with_projects(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "deployments": [{"id": "dep-1"}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": (
+                            f"https://api.digitalocean.com/v2/apps/{DUMMY_APP_ID}/deployments"
+                            "?page=2&per_page=200&with_projects=true"
+                        )
+                    }
+                },
+            },
+        )
+
+    with _client(deployments_with_projects) as c:
+        with pytest.raises(ProviderReadError):
+            c.get_app_deployments(DUMMY_APP_ID)
+
+    # Accepted R4 forms for deployments (page/per_page only)
+    dep_pages = {
+        1: {
+            "deployments": [{"id": "dep-1"}],
+            "meta": {"total": 2},
+            "links": {
+                "pages": {
+                    "next": (
+                        f"https://api.digitalocean.com/v2/apps/{DUMMY_APP_ID}/deployments"
+                        "?page=2&per_page=200"
+                    )
+                }
+            },
+        },
+        2: {
+            "deployments": [{"id": "dep-2"}],
+            "meta": {"total": 2},
+            "links": {"pages": {}},
+        },
+    }
+
+    def deployments_ok(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params.get("page", "1"))
+        assert "with_projects" not in request.url.params
+        return httpx.Response(200, json=dep_pages[page])
+
+    with _client(deployments_ok) as c:
+        assert len(c.get_app_deployments(DUMMY_APP_ID)) == 2
+
     reject_queries = (
         "foo=bar",
         "name=x",
-        "with_projects=true",
         "deployment_types=MANUAL",
-        "page=2&foo=bar",
-        "page=2&per_page=200&extra=x",
-        "page=2&page=3",
-        "per_page=20&per_page=200",
-        "page=0",
-        "page=-1",
-        "page=abc",
-        "page=2&per_page=0",
-        "page=2&per_page=201",
-        "page=2&per_page=abc",
+        "page=2&foo=bar&with_projects=true",
+        "page=2&per_page=200&extra=x&with_projects=true",
+        "page=2&page=3&with_projects=true",
+        "per_page=20&per_page=200&with_projects=true",
+        "page=0&with_projects=true",
+        "page=-1&with_projects=true",
+        "page=abc&with_projects=true",
+        "page=2&per_page=0&with_projects=true",
+        "page=2&per_page=201&with_projects=true",
+        "page=2&per_page=abc&with_projects=true",
+        "page=2&name=x&with_projects=true",
     )
     for q in reject_queries:
         next_url = f"https://api.digitalocean.com/v2/apps?{q}"
@@ -390,16 +546,38 @@ def test_pagination_query_allowlist() -> None:
                 c.list_apps()
 
     with _client(
-        page1_with_next("https://api.digitalocean.com/v2/apps?page=2#frag")
+        page1_with_next(
+            "https://api.digitalocean.com/v2/apps?page=2&with_projects=true#frag"
+        )
     ) as c:
         with pytest.raises(ProviderReadError, match="fragment"):
             c.list_apps()
 
     with _client(
-        page1_with_next("https://user:pass@api.digitalocean.com/v2/apps?page=2")
+        page1_with_next(
+            "https://user:pass@api.digitalocean.com/v2/apps?page=2&with_projects=true"
+        )
     ) as c:
         with pytest.raises(ProviderReadError, match="userinfo"):
             c.list_apps()
+
+
+def test_list_apps_first_request_with_projects() -> None:
+    """Initial List Apps request must be page=1&per_page=200&with_projects=true."""
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return httpx.Response(200, json={"apps": [], "meta": {"total": 0}, "links": {}})
+
+    with _client(handler) as c:
+        assert c.list_apps() == []
+    assert len(seen) == 1
+    assert seen[0].path == "/v2/apps"
+    assert seen[0].params.get("page") == "1"
+    assert seen[0].params.get("per_page") == "200"
+    assert seen[0].params.get("with_projects") == "true"
+    assert list(seen[0].params.keys()) == ["page", "per_page", "with_projects"]
 
 
 def test_oci_digest_paginated_exact_match_fail_closed() -> None:
