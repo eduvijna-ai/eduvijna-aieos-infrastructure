@@ -257,7 +257,7 @@ def test_no_doctl_curl_strings_as_execution() -> None:
 def test_mock_transport_only_no_live_do() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "api.digitalocean.com"
-        return httpx.Response(200, json={"apps": [], "links": {}})
+        return httpx.Response(200, json={"apps": [], "meta": {"total": 0}, "links": {}})
 
     with DigitalOceanAppClient(
         token="dummy",

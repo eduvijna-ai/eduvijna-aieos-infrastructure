@@ -130,19 +130,53 @@ def _extract_safe_ids(parsed: dict[str, Any] | None) -> tuple[str | None, str | 
     return app_id, deployment_id
 
 
-def _assert_same_origin_path(next_url: str, *, required_path_prefix: str) -> str:
+def _parse_meta_total(data: dict[str, Any]) -> int:
+    meta = data.get("meta")
+    if meta is None:
+        raise ProviderReadError("pagination meta missing")
+    if not isinstance(meta, dict):
+        raise ProviderReadError("pagination meta must be object")
+    if "total" not in meta:
+        raise ProviderReadError("pagination meta.total missing")
+    total = meta.get("total")
+    # Reject bool explicitly (bool is a subclass of int in Python)
+    if isinstance(total, bool) or not isinstance(total, int):
+        raise ProviderReadError("pagination meta.total must be non-negative integer")
+    if total < 0:
+        raise ProviderReadError("pagination meta.total must be non-negative integer")
+    return total
+
+
+def _assert_same_origin_next(
+    next_url: str,
+    *,
+    allowed_exact_paths: tuple[str, ...],
+) -> str:
     """Return path+query for next page; fail closed on external/malicious URLs."""
     parsed = urlparse(next_url)
+    if parsed.scheme == "http":
+        raise ProviderReadError("pagination next URL must be HTTPS")
     if parsed.scheme not in {"https", ""}:
         raise ProviderReadError("pagination next URL scheme rejected")
+    if parsed.scheme == "https" and (not parsed.netloc or parsed.netloc != API_HOST):
+        raise ProviderReadError("pagination next URL host rejected")
     if parsed.netloc and parsed.netloc != API_HOST:
         raise ProviderReadError("pagination next URL host rejected")
-    path = parsed.path or ""
-    if not path.startswith(required_path_prefix):
+    path = (parsed.path or "").rstrip("/")
+    allowed = {p.rstrip("/") for p in allowed_exact_paths}
+    if path not in allowed:
         raise ProviderReadError("pagination next path outside allowlist")
     if parsed.query:
         return f"{path}?{parsed.query}"
     return path
+
+
+def _docr_digest_allowed_paths(registry: str, repository: str) -> tuple[str, ...]:
+    """Primary + documented legacy same-origin next path for DOCR digests listing."""
+    return (
+        f"/v2/registries/{registry}/repositories/{repository}/digests",
+        f"/v2/registry/{registry}/repositories/{repository}/digests",
+    )
 
 
 class DigitalOceanAppClient:
@@ -263,11 +297,13 @@ class DigitalOceanAppClient:
         *,
         first_path: str,
         collection_key: str,
-        path_prefix: str,
+        allowed_exact_paths: tuple[str, ...],
     ) -> list[Any]:
+        """Paginated GET with meta.total completeness proof. Never infers completion from absent links."""
         items: list[Any] = []
         path = first_path
         seen: set[str] = set()
+        expected_total: int | None = None
         for _ in range(MAX_PAGES):
             if path in seen:
                 raise ProviderReadError("pagination loop detected")
@@ -276,23 +312,42 @@ class DigitalOceanAppClient:
             page_items = data.get(collection_key)
             if not isinstance(page_items, list):
                 raise ProviderReadError(f"malformed {collection_key} response")
+            total = _parse_meta_total(data)
+            if expected_total is None:
+                expected_total = total
+            elif total != expected_total:
+                raise ProviderReadError("pagination meta.total changed between pages")
             items.extend(page_items)
+            if len(items) > expected_total:
+                raise ProviderReadError("pagination accumulated count exceeds meta.total")
+
             links = data.get("links")
             if links is None:
-                return items
-            if not isinstance(links, dict):
+                nxt = None
+            elif not isinstance(links, dict):
                 raise ProviderReadError("malformed pagination links")
-            pages = links.get("pages")
-            if pages is None:
-                return items
-            if not isinstance(pages, dict):
-                raise ProviderReadError("malformed pagination pages")
-            nxt = pages.get("next")
-            if not nxt:
-                return items
-            if not isinstance(nxt, str):
-                raise ProviderReadError("malformed pagination next")
-            path = _assert_same_origin_path(nxt, required_path_prefix=path_prefix)
+            else:
+                pages = links.get("pages")
+                if pages is None:
+                    nxt = None
+                elif not isinstance(pages, dict):
+                    raise ProviderReadError("malformed pagination pages")
+                else:
+                    nxt = pages.get("next")
+                    if nxt is not None and not isinstance(nxt, str):
+                        raise ProviderReadError("malformed pagination next")
+                    if isinstance(nxt, str) and not nxt:
+                        nxt = None
+
+            if nxt:
+                path = _assert_same_origin_next(nxt, allowed_exact_paths=allowed_exact_paths)
+                continue
+
+            # No next: completeness requires exact total match
+            if len(items) != expected_total:
+                raise ProviderReadError("incomplete enumeration")
+            return items
+
         raise ProviderReadError("pagination exceeded max pages")
 
     def get_app(self, app_id: str) -> dict[str, Any]:
@@ -304,7 +359,7 @@ class DigitalOceanAppClient:
         apps = self._paginate(
             first_path="/v2/apps?page=1&per_page=200",
             collection_key="apps",
-            path_prefix="/v2/apps",
+            allowed_exact_paths=("/v2/apps",),
         )
         if not all(isinstance(a, dict) for a in apps):
             raise ProviderReadError("malformed apps entries")
@@ -332,7 +387,7 @@ class DigitalOceanAppClient:
         deployments = self._paginate(
             first_path=f"/v2/apps/{app_id}/deployments?page=1&per_page=200",
             collection_key="deployments",
-            path_prefix=f"/v2/apps/{app_id}/deployments",
+            allowed_exact_paths=(f"/v2/apps/{app_id}/deployments",),
         )
         if not all(isinstance(d, dict) for d in deployments):
             raise ProviderReadError("malformed deployments entries")
@@ -350,12 +405,12 @@ class DigitalOceanAppClient:
         if registry != "eduvijna-registry" or repository != "aieos-backend":
             raise AllowlistViolationError("registry/repository not authorized")
         # Documented DOCR endpoint path remains .../digests; 200 collection key is "manifests".
-        path_prefix = f"/v2/registries/{registry}/repositories/{repository}/digests"
-        first = f"{path_prefix}?page=1&per_page=200"
+        primary = f"/v2/registries/{registry}/repositories/{repository}/digests"
+        first = f"{primary}?page=1&per_page=200"
         manifests = self._paginate(
             first_path=first,
             collection_key="manifests",
-            path_prefix=path_prefix,
+            allowed_exact_paths=_docr_digest_allowed_paths(registry, repository),
         )
         for entry in manifests:
             if not isinstance(entry, dict):

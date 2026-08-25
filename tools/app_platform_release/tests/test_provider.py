@@ -169,12 +169,14 @@ def test_app_cardinality_paginated_local_filter() -> None:
                 {"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "other"}},
                 {"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "aieos-prod-workflow-dispatcher"}},
             ],
+            "meta": {"total": 3},
             "links": {"pages": {"next": "https://api.digitalocean.com/v2/apps?page=2&per_page=200"}},
         },
         2: {
             "apps": [
                 {"id": "33333333-3333-4333-8333-333333333333", "spec": {"name": "aieos-prod-workflow-dispatcher"}},
             ],
+            "meta": {"total": 3},
             "links": {"pages": {}},
         },
     }
@@ -190,15 +192,95 @@ def test_app_cardinality_paginated_local_filter() -> None:
         assert c.count_apps_by_semantic_name("missing") == 0
 
 
-def test_app_cardinality_zero_and_malformed_and_external_next() -> None:
-    def empty(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"apps": [], "links": {}})
+def test_app_cardinality_completeness() -> None:
+    def complete_zero(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"apps": [], "meta": {"total": 0}, "links": {}})
 
-    with _client(empty) as c:
+    with _client(complete_zero) as c:
         assert c.count_apps_by_semantic_name("aieos-prod-workflow-dispatcher") == 0
 
+    def incomplete_zero(request: httpx.Request) -> httpx.Response:
+        # empty page but total=1 and no next → must NOT return cardinality 0
+        return httpx.Response(200, json={"apps": [], "meta": {"total": 1}, "links": {}})
+
+    with _client(incomplete_zero) as c:
+        with pytest.raises(ProviderReadError, match="incomplete enumeration"):
+            c.count_apps_by_semantic_name("aieos-prod-workflow-dispatcher")
+
+    def incomplete_partial(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "apps": [{"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "other"}}],
+                "meta": {"total": 2},
+                "links": {},
+            },
+        )
+
+    with _client(incomplete_partial) as c:
+        with pytest.raises(ProviderReadError, match="incomplete enumeration"):
+            c.count_apps_by_semantic_name("x")
+
+    pages = {
+        1: {
+            "apps": [{"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "a"}}],
+            "meta": {"total": 2},
+            "links": {"pages": {"next": "https://api.digitalocean.com/v2/apps?page=2&per_page=200"}},
+        },
+        2: {
+            "apps": [{"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "b"}}],
+            "meta": {"total": 2},
+            "links": {"pages": {}},
+        },
+    }
+
+    def complete_two(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params.get("page", "1"))
+        return httpx.Response(200, json=pages[page])
+
+    with _client(complete_two) as c:
+        assert c.count_apps_by_semantic_name("missing") == 0
+
+    unstable = {
+        1: {
+            "apps": [{"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "a"}}],
+            "meta": {"total": 2},
+            "links": {"pages": {"next": "https://api.digitalocean.com/v2/apps?page=2&per_page=200"}},
+        },
+        2: {
+            "apps": [{"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "b"}}],
+            "meta": {"total": 3},
+            "links": {"pages": {}},
+        },
+    }
+
+    def unstable_total(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params.get("page", "1"))
+        return httpx.Response(200, json=unstable[page])
+
+    with _client(unstable_total) as c:
+        with pytest.raises(ProviderReadError, match="meta.total changed"):
+            c.list_apps()
+
+    def exceeds(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "apps": [
+                    {"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "a"}},
+                    {"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "b"}},
+                ],
+                "meta": {"total": 1},
+                "links": {},
+            },
+        )
+
+    with _client(exceeds) as c:
+        with pytest.raises(ProviderReadError, match="exceeds"):
+            c.list_apps()
+
     def malformed(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"apps": "nope"})
+        return httpx.Response(200, json={"apps": "nope", "meta": {"total": 0}})
 
     with _client(malformed) as c:
         with pytest.raises(ProviderReadError):
@@ -209,6 +291,7 @@ def test_app_cardinality_zero_and_malformed_and_external_next() -> None:
             200,
             json={
                 "apps": [],
+                "meta": {"total": 1},
                 "links": {"pages": {"next": "https://evil.example/v2/apps?page=2"}},
             },
         )
@@ -221,31 +304,48 @@ def test_app_cardinality_zero_and_malformed_and_external_next() -> None:
 def test_oci_digest_paginated_exact_match_fail_closed() -> None:
     target = DUMMY_DIGEST
     other = "sha256:" + ("b" * 64)
-    pages = {
-        1: {
+
+    # Documented: first request plural /registries; next uses legacy singular /registry
+    pages: dict[str, dict] = {
+        "primary": {
             "manifests": [{"digest": other}],
+            "meta": {"total": 2},
             "links": {
                 "pages": {
-                    "next": "https://api.digitalocean.com/v2/registries/eduvijna-registry/repositories/aieos-backend/digests?page=2&per_page=200"
+                    "next": "https://api.digitalocean.com/v2/registry/eduvijna-registry/repositories/aieos-backend/digests?page=2&per_page=200"
                 }
             },
         },
-        2: {"manifests": [{"digest": target}], "links": {"pages": {}}},
+        "legacy": {
+            "manifests": [{"digest": target}],
+            "meta": {"total": 2},
+            "links": {"pages": {}},
+        },
     }
+    seen_paths: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert "/v2/registries/eduvijna-registry/repositories/aieos-backend/digests" == request.url.path
+        seen_paths.append(request.url.path)
         assert request.method == "GET"
-        page = int(request.url.params.get("page", "1"))
-        return httpx.Response(200, json=pages[page])
+        if request.url.path == "/v2/registries/eduvijna-registry/repositories/aieos-backend/digests":
+            return httpx.Response(200, json=pages["primary"])
+        if request.url.path == "/v2/registry/eduvijna-registry/repositories/aieos-backend/digests":
+            return httpx.Response(200, json=pages["legacy"])
+        raise AssertionError(f"unexpected path {request.url.path}")
 
     with _client(handler) as c:
         assert c.prove_registry_digest_exists(
             registry="eduvijna-registry", repository="aieos-backend", digest=target
         )
+    assert seen_paths == [
+        "/v2/registries/eduvijna-registry/repositories/aieos-backend/digests",
+        "/v2/registry/eduvijna-registry/repositories/aieos-backend/digests",
+    ]
 
     def missing_target(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"manifests": [{"digest": other}], "links": {}})
+        return httpx.Response(
+            200, json={"manifests": [{"digest": other}], "meta": {"total": 1}, "links": {}}
+        )
 
     with _client(missing_target) as c:
         assert (
@@ -255,8 +355,19 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             is False
         )
 
+    def incomplete(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"manifests": [{"digest": other}], "meta": {"total": 2}, "links": {}}
+        )
+
+    with _client(incomplete) as c:
+        with pytest.raises(ProviderReadError, match="incomplete enumeration"):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
     def missing_key(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"links": {}})
+        return httpx.Response(200, json={"meta": {"total": 0}, "links": {}})
 
     with _client(missing_key) as c:
         with pytest.raises(ProviderReadError):
@@ -265,7 +376,7 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             )
 
     def not_array(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"manifests": 123})
+        return httpx.Response(200, json={"manifests": 123, "meta": {"total": 0}})
 
     with _client(not_array) as c:
         with pytest.raises(ProviderReadError):
@@ -274,7 +385,9 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             )
 
     def not_object(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"manifests": [target], "links": {}})
+        return httpx.Response(
+            200, json={"manifests": [target], "meta": {"total": 1}, "links": {}}
+        )
 
     with _client(not_object) as c:
         with pytest.raises(ProviderReadError):
@@ -283,7 +396,9 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             )
 
     def missing_digest_field(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"manifests": [{"tag": "latest"}], "links": {}})
+        return httpx.Response(
+            200, json={"manifests": [{"tag": "latest"}], "meta": {"total": 1}, "links": {}}
+        )
 
     with _client(missing_digest_field) as c:
         with pytest.raises(ProviderReadError):
@@ -292,7 +407,9 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             )
 
     def malformed_digest(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"manifests": [{"digest": "latest"}], "links": {}})
+        return httpx.Response(
+            200, json={"manifests": [{"digest": "latest"}], "meta": {"total": 1}, "links": {}}
+        )
 
     with _client(malformed_digest) as c:
         with pytest.raises(ProviderReadError):
@@ -301,8 +418,9 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             )
 
     def invent_digests_key(request: httpx.Request) -> httpx.Response:
-        # invented collection key must fail closed (manifests required)
-        return httpx.Response(200, json={"digests": [{"digest": target}], "links": {}})
+        return httpx.Response(
+            200, json={"digests": [{"digest": target}], "meta": {"total": 1}, "links": {}}
+        )
 
     with _client(invent_digests_key) as c:
         with pytest.raises(ProviderReadError):
@@ -310,14 +428,38 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
                 registry="eduvijna-registry", repository="aieos-backend", digest=target
             )
 
+    def missing_meta(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"manifests": [], "links": {}})
+
+    with _client(missing_meta) as c:
+        with pytest.raises(ProviderReadError, match="meta"):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    for bad_total in (None, "2", True, -1, 1.5):
+        payload = {"manifests": [], "meta": {"total": bad_total} if bad_total is not None else {}, "links": {}}
+        if bad_total is None:
+            payload["meta"] = {}
+
+        def bad_meta(request: httpx.Request, p=payload) -> httpx.Response:
+            return httpx.Response(200, json=p)
+
+        with _client(bad_meta) as c:
+            with pytest.raises(ProviderReadError):
+                c.prove_registry_digest_exists(
+                    registry="eduvijna-registry", repository="aieos-backend", digest=target
+                )
+
     def evil_next(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
                 "manifests": [{"digest": other}],
+                "meta": {"total": 2},
                 "links": {
                     "pages": {
-                        "next": "https://evil.example/v2/registries/eduvijna-registry/repositories/aieos-backend/digests?page=2"
+                        "next": "https://evil.example/v2/registry/eduvijna-registry/repositories/aieos-backend/digests?page=2"
                     }
                 },
             },
@@ -325,6 +467,109 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
 
     with _client(evil_next) as c:
         with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def http_next(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": "http://api.digitalocean.com/v2/registry/eduvijna-registry/repositories/aieos-backend/digests?page=2"
+                    }
+                },
+            },
+        )
+
+    with _client(http_next) as c:
+        with pytest.raises(ProviderReadError, match="HTTPS"):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def wrong_registry_legacy(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": "https://api.digitalocean.com/v2/registry/other-registry/repositories/aieos-backend/digests?page=2"
+                    }
+                },
+            },
+        )
+
+    with _client(wrong_registry_legacy) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def wrong_repo_legacy(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": "https://api.digitalocean.com/v2/registry/eduvijna-registry/repositories/other-repo/digests?page=2"
+                    }
+                },
+            },
+        )
+
+    with _client(wrong_repo_legacy) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def digest_specific_path(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": f"https://api.digitalocean.com/v2/registry/eduvijna-registry/repositories/aieos-backend/digests/{target}"
+                    }
+                },
+            },
+        )
+
+    with _client(digest_specific_path) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    loop_hits = {"n": 0}
+
+    def pagination_loop(request: httpx.Request) -> httpx.Response:
+        loop_hits["n"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "meta": {"total": 2},
+                "links": {
+                    "pages": {
+                        "next": "https://api.digitalocean.com/v2/registries/eduvijna-registry/repositories/aieos-backend/digests?page=1&per_page=200"
+                    }
+                },
+            },
+        )
+
+    with _client(pagination_loop) as c:
+        with pytest.raises(ProviderReadError, match="loop"):
             c.prove_registry_digest_exists(
                 registry="eduvijna-registry", repository="aieos-backend", digest=target
             )

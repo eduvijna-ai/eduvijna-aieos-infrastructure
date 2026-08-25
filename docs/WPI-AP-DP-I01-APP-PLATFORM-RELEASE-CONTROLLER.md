@@ -146,6 +146,11 @@ Fail-closed repairs on the same library/contracts/tests surface:
 - DOCR manifest existence uses documented response collection `manifests` with field `digest` (`sha256:<64 lowercase hex>` only); invented `digests` collection / speculative aliases fail closed
 - ADR-AIEOS-049 `updated_at` hard race fence restored: any `updated_at` change between READ_1 and READ_2 is STALE_WRITE; allowed-default / ciphertext normalization never bypasses that signal
 
+## WPI-AP-DP-I01R3 corrective hardenings
+
+- Paginated reads require `meta.total` completeness proof (`accumulated == meta.total`); absent next with shortfall fails closed
+- DOCR pagination accepts documented same-origin legacy next path `/v2/registry/{reg}/repositories/{repo}/digests` in addition to primary `/v2/registries/.../digests` (exact registry/repository only)
+
 ## What I01 explicitly does NOT authorize
 
 | Item | Status |
