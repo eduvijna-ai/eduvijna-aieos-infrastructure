@@ -1,0 +1,133 @@
+# WPI-AP-DP-I01 — production App Platform release-plane contract
+# Architecture: ADR-AIEOS-049 (deployment-plane behavior) / ADR-AIEOS-050 (implementation architecture)
+# NON-SECRET governed source only. Physical production UUIDs remain unresolved until separately frozen.
+schema_version: "1"
+architecture_authority:
+  deployment_plane: ADR-AIEOS-049
+  implementation_architecture: ADR-AIEOS-050
+environment: production
+controller:
+  placement: tools/app_platform_release
+  packaging: infrastructure_isolated_release_tool
+  backend_package_forbidden: true
+  opentofu_app_ownership_forbidden: true
+runtime:
+  language: python
+  python_family: "3.14"
+  python_exact: "3.14.7"
+  dependency_manager: uv
+  production_runner: github-hosted-ubuntu-24.04
+  self_hosted_production_runner: forbidden
+provider:
+  name: digitalocean
+  api_base_url: https://api.digitalocean.com
+  tls_verify: true
+  trust_env: false
+  follow_redirects: false
+  automatic_mutation_retries: 0
+  read_retry:
+    enabled: true
+    mode: bounded_read_only
+registry:
+  logical_registry: eduvijna-registry
+  repository: aieos-backend
+  production_authority: immutable_digest_only
+workloads:
+  workflow_dispatcher:
+    app_semantic_name: aieos-prod-workflow-dispatcher
+    workflow_file: app-platform-release-workflow-dispatcher.yml
+    github_environment: aieos-prod-workflow-dispatcher
+    concurrency_group: aieos-prod-app-release-workflow-dispatcher
+    secret_key_names:
+      - AIEOS_DO_APP_RELEASE_TOKEN
+      - AIEOS_WORKFLOW_DISPATCHER_DATABASE_URL
+      - AIEOS_WORKFLOW_DISPATCHER_TEMPORAL_API_KEY
+  temporal_worker:
+    app_semantic_name: aieos-prod-temporal-worker
+    workflow_file: app-platform-release-temporal-worker.yml
+    github_environment: aieos-prod-temporal-worker
+    concurrency_group: aieos-prod-app-release-temporal-worker
+    secret_key_names:
+      - AIEOS_DO_APP_RELEASE_TOKEN
+      - AIEOS_TEMPORAL_API_KEY
+concurrency:
+  cancel_in_progress: false
+  queue: single
+  timeout_minutes: 60
+operations:
+  allowed:
+    - CREATE
+    - UPDATE
+    - ROTATE_SECRET
+    - ROLLBACK
+  method_path_authority:
+    CREATE:
+      method: POST
+      path: /v2/apps
+    UPDATE:
+      method: PUT
+      path_template: /v2/apps/{exact_authorized_app_id}
+    ROTATE_SECRET:
+      method: PUT
+      path_template: /v2/apps/{exact_authorized_app_id}
+    ROLLBACK:
+      method_sequence:
+        - validate
+        - rollback
+        - verify
+        - commit
+      notes: DigitalOcean native rollback sequence per ADR-AIEOS-049
+  forbidden:
+    - DELETE
+    - restart
+    - console
+    - arbitrary_method
+    - arbitrary_endpoint
+credentials:
+  pat_logical_classes:
+    - dispatcher_bootstrap
+    - dispatcher_steady_state
+    - worker_bootstrap
+    - worker_steady_state
+  steady_state_scopes:
+    - app:update
+    - app:read
+    - regions:read
+    - sizes:read
+    - actions:read
+    - project:read
+    - vpc:read
+    - registry:read
+  bootstrap_additional_scopes:
+    - app:create
+    - project:assign_resource
+  forbidden_normal_authority:
+    - app:delete
+    - app:access_console
+    - broad_api_write
+    - registry_mutation
+    - vpc_mutation
+    - broad_project_mutation
+  lifetime_days_max: 90
+  rotation_target_begins_days_before_expiry: 30
+physical_ids:
+  status: unresolved_pre_bootstrap
+  project_uuid: null
+  vpc_uuid: null
+  workflow_dispatcher_app_uuid: null
+  temporal_worker_app_uuid: null
+evidence:
+  artifact_name: release-receipt.json
+  retention_days: 90
+  permanent_audit_sor: false
+triggers:
+  production_automatic: forbidden
+  allowed_trigger: workflow_dispatch_only
+ownership:
+  app_lifecycle: governed_state_free_deployment_plane
+  opentofu_digitalocean_app: rejected
+production:
+  deployment_authorized: false
+  live_validation_authorized: false
+  credential_creation_authorized: false
+  tv01_authorized: false
