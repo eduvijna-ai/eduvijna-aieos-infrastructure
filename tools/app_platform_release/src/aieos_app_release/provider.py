@@ -26,6 +26,7 @@ APP_ID_RE = re.compile(
 )
 _DECIMAL_INT_RE = re.compile(r"^[0-9]+$")
 _PAGINATION_QUERY_KEYS = frozenset({"page", "per_page"})
+_LIST_APPS_QUERY_KEYS = frozenset({"page", "per_page", "with_projects"})
 MAX_PAGES = 100
 
 
@@ -71,6 +72,16 @@ def _validate_app_id(app_id: str) -> str:
         raise AllowlistViolationError("arbitrary/invalid App ID rejected", detail="app_id")
     UUID(app_id)
     return app_id
+
+
+def _validate_project_id(project_id: str) -> str:
+    """Explicit CREATE project UUID — no default-project fallback."""
+    if not isinstance(project_id, str) or not project_id:
+        raise AllowlistViolationError("CREATE requires explicit project UUID", detail="project_id")
+    if not APP_ID_RE.fullmatch(project_id):
+        raise AllowlistViolationError("arbitrary/invalid project UUID rejected", detail="project_id")
+    UUID(project_id)
+    return project_id
 
 
 def _is_retryable_read(exc: BaseException | None, status: int | None) -> bool:
@@ -149,19 +160,38 @@ def _parse_meta_total(data: dict[str, Any]) -> int:
     return total
 
 
-def _assert_pagination_query(query: str) -> None:
-    """Allow only page/per_page with strict single decimal-integer values."""
-    if not query:
-        return
-    pairs = parse_qsl(query, keep_blank_values=True)
+def _assert_pagination_query(
+    query: str,
+    *,
+    allowed_keys: frozenset[str] = _PAGINATION_QUERY_KEYS,
+    require_with_projects_true: bool = False,
+) -> None:
+    """Allow listed pagination keys with strict single decimal-integer page/per_page.
+
+    List Apps may additionally require exactly one ``with_projects=true``.
+    All other paginated endpoints keep R4: only ``page`` / ``per_page``.
+    """
+    pairs = parse_qsl(query, keep_blank_values=True) if query else []
     keys = [key for key, _ in pairs]
     for key in keys:
-        if key not in _PAGINATION_QUERY_KEYS:
+        if key not in allowed_keys:
             raise ProviderReadError("pagination query parameter rejected")
     if keys.count("page") > 1:
         raise ProviderReadError("duplicate pagination page parameter")
     if keys.count("per_page") > 1:
         raise ProviderReadError("duplicate pagination per_page parameter")
+    if require_with_projects_true:
+        wp_count = keys.count("with_projects")
+        if wp_count == 0:
+            raise ProviderReadError("with_projects required on list apps pagination")
+        if wp_count > 1:
+            raise ProviderReadError("duplicate with_projects parameter")
+        wp_value = next(v for k, v in pairs if k == "with_projects")
+        if wp_value != "true":
+            raise ProviderReadError("with_projects must be true")
+    elif "with_projects" in keys:
+        # Defense: with_projects must never pass default R4 allowlist.
+        raise ProviderReadError("pagination query parameter rejected")
     values = dict(pairs)
     if "page" in values:
         raw_page = values["page"]
@@ -182,6 +212,8 @@ def _assert_same_origin_next(
     next_url: str,
     *,
     allowed_exact_paths: tuple[str, ...],
+    allowed_query_keys: frozenset[str] = _PAGINATION_QUERY_KEYS,
+    require_with_projects_true: bool = False,
 ) -> str:
     """Return path+query for next page; fail closed on external/malicious URLs."""
     parsed = urlparse(next_url)
@@ -201,7 +233,11 @@ def _assert_same_origin_next(
     allowed = {p.rstrip("/") for p in allowed_exact_paths}
     if path not in allowed:
         raise ProviderReadError("pagination next path outside allowlist")
-    _assert_pagination_query(parsed.query)
+    _assert_pagination_query(
+        parsed.query,
+        allowed_keys=allowed_query_keys,
+        require_with_projects_true=require_with_projects_true,
+    )
     if parsed.query:
         return f"{path}?{parsed.query}"
     return path
@@ -334,6 +370,8 @@ class DigitalOceanAppClient:
         first_path: str,
         collection_key: str,
         allowed_exact_paths: tuple[str, ...],
+        allowed_query_keys: frozenset[str] = _PAGINATION_QUERY_KEYS,
+        require_with_projects_true: bool = False,
     ) -> list[Any]:
         """Paginated GET with meta.total completeness proof. Never infers completion from absent links."""
         items: list[Any] = []
@@ -376,7 +414,12 @@ class DigitalOceanAppClient:
                         nxt = None
 
             if nxt:
-                path = _assert_same_origin_next(nxt, allowed_exact_paths=allowed_exact_paths)
+                path = _assert_same_origin_next(
+                    nxt,
+                    allowed_exact_paths=allowed_exact_paths,
+                    allowed_query_keys=allowed_query_keys,
+                    require_with_projects_true=require_with_projects_true,
+                )
                 continue
 
             # No next: completeness requires exact total match
@@ -391,11 +434,13 @@ class DigitalOceanAppClient:
         return self._read_with_retry("GET", f"/v2/apps/{app_id}")
 
     def list_apps(self) -> list[dict[str, Any]]:
-        """Complete paginated GET /v2/apps (no server-side name filter)."""
+        """Complete paginated GET /v2/apps with explicit project evidence (with_projects=true)."""
         apps = self._paginate(
-            first_path="/v2/apps?page=1&per_page=200",
+            first_path="/v2/apps?page=1&per_page=200&with_projects=true",
             collection_key="apps",
             allowed_exact_paths=("/v2/apps",),
+            allowed_query_keys=_LIST_APPS_QUERY_KEYS,
+            require_with_projects_true=True,
         )
         if not all(isinstance(a, dict) for a in apps):
             raise ProviderReadError("malformed apps entries")
@@ -509,10 +554,17 @@ class DigitalOceanAppClient:
             deployment_id=deployment_id,
         )
 
-    def create_app(self, app_spec: dict[str, Any]) -> MutationResult:
+    def create_app(self, app_spec: dict[str, Any], *, project_id: str) -> MutationResult:
+        """CREATE with explicit project binding — no default-project fallback."""
         if not isinstance(app_spec, dict):
             raise AllowlistViolationError("CREATE requires object AppSpec")
-        return self._mutate_once("POST", "/v2/apps", {"spec": app_spec})
+        authorized_project_uuid = _validate_project_id(project_id)
+        # Exact body: project_id + spec only. AppSpec remains caller-owned in-memory.
+        return self._mutate_once(
+            "POST",
+            "/v2/apps",
+            {"project_id": authorized_project_uuid, "spec": app_spec},
+        )
 
     def update_app(self, app_id: str, app_spec: dict[str, Any]) -> MutationResult:
         app_id = _validate_app_id(app_id)

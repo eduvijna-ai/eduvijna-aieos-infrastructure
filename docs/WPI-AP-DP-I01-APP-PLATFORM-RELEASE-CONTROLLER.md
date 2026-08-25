@@ -5,7 +5,7 @@
 | Repository | `origin/main` |
 |------------|---------------|
 | Architecture | `26f9fb02cc522779b5f75456c12bc84354634edd` |
-| Infrastructure | `157f25a6a580d01be92ce798594302cdfe84cc9f` |
+| Infrastructure | `7e295f00fa5990d6368451626d31c76adf4c3a36` |
 | Backend | `8f4dd172e6a0ba8b4ad944b0ae22060442356342` |
 
 ## Architecture authority
@@ -50,7 +50,7 @@ Typed operations only:
 
 | Operation | Bound |
 |-----------|-------|
-| CREATE | `POST /v2/apps` |
+| CREATE | `POST /v2/apps` body exactly `{"project_id": <UUID>, "spec": <AppSpec>}` — explicit project UUID required; no default-project fallback |
 | UPDATE / ROTATE_SECRET | `PUT /v2/apps/{exact_authorized_app_id}` |
 | ROLLBACK | native validate → rollback → verify → commit sequence |
 
@@ -154,6 +154,13 @@ Fail-closed repairs on the same library/contracts/tests surface:
 ## WPI-AP-DP-I01R4 corrective hardenings
 
 - Pagination next URLs may carry only `page` / `per_page` (single decimal integers; `page >= 1`; `per_page` in 1..200); unknown keys, duplicates, fragments, and userinfo fail closed
+
+## WPI-AP-DP-I01E1 CREATE project binding + project-aware enumeration
+
+- `create_app` requires an explicit validated project UUID and transmits exactly `{"project_id": <uuid>, "spec": <AppSpec>}` — no default-project fallback, no arbitrary extra top-level CREATE properties
+- List Apps initial request is `GET /v2/apps?page=1&per_page=200&with_projects=true`; every provider next URL for that enumeration must carry exactly one `with_projects=true`
+- `with_projects` is **not** authorized on deployments or DOCR pagination (R4 `page`/`per_page` only remains)
+- CREATE reconciliation evidence path unchanged: semantic name + exact project UUID + exact VPC UUID + managed fingerprint (name alone / wrong project / missing project remain AMBIGUOUS / fail closed)
 
 ## What I01 explicitly does NOT authorize
 
