@@ -36,18 +36,17 @@ def _snap(**kwargs) -> LiveAppSnapshot:
     return LiveAppSnapshot(**base)
 
 
-def test_equal_double_read_eligible() -> None:
+def test_A_same_updated_at_same_semantic_eligible() -> None:
     a = _snap()
     b = _snap()
     assert evaluate_stale_write_fence(a, b) is FenceResult.ELIGIBLE
     assert_fence_eligible(a, b)
 
 
-def test_allowed_provider_default_only_not_stale() -> None:
+def test_B_same_updated_at_allowed_provider_default_only_eligible() -> None:
     a = _snap(managed_projection={"name": "x", "region": "blr"})
     b = _snap(
         managed_projection={"name": "x", "region": "blr", "default_ingress_rule": "provider-added"},
-        updated_at="2026-08-24T01:00:00Z",
     )
     assert "default_ingress_rule" not in normalize_allowed_provider_defaults(
         b.managed_projection, b.allowed_provider_defaults
@@ -55,7 +54,45 @@ def test_allowed_provider_default_only_not_stale() -> None:
     assert evaluate_stale_write_fence(a, b) is FenceResult.ELIGIBLE
 
 
-def test_managed_non_secret_difference_blocks() -> None:
+def test_C_same_updated_at_ciphertext_only_eligible() -> None:
+    a = _snap(
+        managed_projection={"name": "x", "env": {"AIEOS_TEMPORAL_API_KEY": "EV[AAAA]"}},
+    )
+    b = _snap(
+        managed_projection={"name": "x", "env": {"AIEOS_TEMPORAL_API_KEY": "EV[BBBB]"}},
+    )
+    assert evaluate_stale_write_fence(a, b) is FenceResult.ELIGIBLE
+
+
+def test_D_different_updated_at_otherwise_identical_stale() -> None:
+    a = _snap()
+    b = _snap(updated_at="2026-08-24T01:00:00Z")
+    assert evaluate_stale_write_fence(a, b) is FenceResult.STALE_WRITE
+    with pytest.raises(StaleWriteError):
+        assert_fence_eligible(a, b)
+
+
+def test_E_different_updated_at_allowed_default_only_stale() -> None:
+    a = _snap(managed_projection={"name": "x", "region": "blr"})
+    b = _snap(
+        managed_projection={"name": "x", "region": "blr", "default_ingress_rule": "provider-added"},
+        updated_at="2026-08-24T01:00:00Z",
+    )
+    assert evaluate_stale_write_fence(a, b) is FenceResult.STALE_WRITE
+
+
+def test_F_different_updated_at_ciphertext_only_stale() -> None:
+    a = _snap(
+        managed_projection={"name": "x", "env": {"AIEOS_TEMPORAL_API_KEY": "EV[AAAA]"}},
+    )
+    b = _snap(
+        managed_projection={"name": "x", "env": {"AIEOS_TEMPORAL_API_KEY": "EV[BBBB]"}},
+        updated_at="2026-08-24T02:00:00Z",
+    )
+    assert evaluate_stale_write_fence(a, b) is FenceResult.STALE_WRITE
+
+
+def test_G_managed_non_secret_change_stale() -> None:
     a = _snap()
     b = _snap(managed_projection={"name": "aieos-prod-workflow-dispatcher", "region": "nyc"})
     assert evaluate_stale_write_fence(a, b) is FenceResult.STALE_WRITE
@@ -63,30 +100,13 @@ def test_managed_non_secret_difference_blocks() -> None:
         assert_fence_eligible(a, b)
 
 
-def test_secret_key_set_change_blocks() -> None:
+def test_H_secret_key_set_change_blocked() -> None:
     a = _snap()
     b = _snap(secret_key_set=frozenset({"AIEOS_TEMPORAL_API_KEY", "EXTRA"}))
     assert evaluate_stale_write_fence(a, b) is FenceResult.SECRET_KEY_SET_CHANGED
 
 
-def test_secret_ciphertext_only_non_blocking() -> None:
-    a = _snap(
-        managed_projection={
-            "name": "x",
-            "env": {"AIEOS_TEMPORAL_API_KEY": "EV[AAAA]"},
-        }
-    )
-    b = _snap(
-        managed_projection={
-            "name": "x",
-            "env": {"AIEOS_TEMPORAL_API_KEY": "EV[BBBB]"},
-        },
-        updated_at="2026-08-24T02:00:00Z",
-    )
-    assert evaluate_stale_write_fence(a, b) is FenceResult.ELIGIBLE
-
-
-def test_changed_app_identity_and_physical_ids() -> None:
+def test_I_identity_and_physical_id_change_blocked() -> None:
     a = _snap()
     assert (
         evaluate_stale_write_fence(a, _snap(app_id="55555555-5555-4555-8555-555555555555"))
@@ -94,6 +114,10 @@ def test_changed_app_identity_and_physical_ids() -> None:
     )
     assert (
         evaluate_stale_write_fence(a, _snap(vpc_uuid="66666666-6666-4666-8666-666666666666"))
+        is FenceResult.PHYSICAL_ID_CHANGED
+    )
+    assert (
+        evaluate_stale_write_fence(a, _snap(project_uuid="77777777-7777-4777-8777-777777777777"))
         is FenceResult.PHYSICAL_ID_CHANGED
     )
 

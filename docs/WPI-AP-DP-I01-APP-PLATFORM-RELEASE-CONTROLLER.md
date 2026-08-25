@@ -141,6 +141,11 @@ Fail-closed repairs on the same library/contracts/tests surface:
 - CREATE reconciliation requires project+VPC+fingerprint evidence (name alone insufficient)
 - Allowed provider-default normalization integrated into stale-write fence
 
+## WPI-AP-DP-I01R2 corrective hardenings
+
+- DOCR manifest existence uses documented response collection `manifests` with field `digest` (`sha256:<64 lowercase hex>` only); invented `digests` collection / speculative aliases fail closed
+- ADR-AIEOS-049 `updated_at` hard race fence restored: any `updated_at` change between READ_1 and READ_2 is STALE_WRITE; allowed-default / ciphertext normalization never bypasses that signal
+
 ## What I01 explicitly does NOT authorize
 
 | Item | Status |

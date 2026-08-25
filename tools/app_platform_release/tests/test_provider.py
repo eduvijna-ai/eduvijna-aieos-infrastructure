@@ -223,14 +223,14 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
     other = "sha256:" + ("b" * 64)
     pages = {
         1: {
-            "digests": [{"digest": other}],
+            "manifests": [{"digest": other}],
             "links": {
                 "pages": {
                     "next": "https://api.digitalocean.com/v2/registries/eduvijna-registry/repositories/aieos-backend/digests?page=2&per_page=200"
                 }
             },
         },
-        2: {"digests": [{"digest": target}], "links": {"pages": {}}},
+        2: {"manifests": [{"digest": target}], "links": {"pages": {}}},
     }
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -244,10 +244,10 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             registry="eduvijna-registry", repository="aieos-backend", digest=target
         )
 
-    def missing(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"digests": [{"digest": other}], "links": {}})
+    def missing_target(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"manifests": [{"digest": other}], "links": {}})
 
-    with _client(missing) as c:
+    with _client(missing_target) as c:
         assert (
             c.prove_registry_digest_exists(
                 registry="eduvijna-registry", repository="aieos-backend", digest=target
@@ -255,10 +255,75 @@ def test_oci_digest_paginated_exact_match_fail_closed() -> None:
             is False
         )
 
-    def bad(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"digests": 123})
+    def missing_key(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"links": {}})
 
-    with _client(bad) as c:
+    with _client(missing_key) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def not_array(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"manifests": 123})
+
+    with _client(not_array) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def not_object(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"manifests": [target], "links": {}})
+
+    with _client(not_object) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def missing_digest_field(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"manifests": [{"tag": "latest"}], "links": {}})
+
+    with _client(missing_digest_field) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def malformed_digest(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"manifests": [{"digest": "latest"}], "links": {}})
+
+    with _client(malformed_digest) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def invent_digests_key(request: httpx.Request) -> httpx.Response:
+        # invented collection key must fail closed (manifests required)
+        return httpx.Response(200, json={"digests": [{"digest": target}], "links": {}})
+
+    with _client(invent_digests_key) as c:
+        with pytest.raises(ProviderReadError):
+            c.prove_registry_digest_exists(
+                registry="eduvijna-registry", repository="aieos-backend", digest=target
+            )
+
+    def evil_next(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "manifests": [{"digest": other}],
+                "links": {
+                    "pages": {
+                        "next": "https://evil.example/v2/registries/eduvijna-registry/repositories/aieos-backend/digests?page=2"
+                    }
+                },
+            },
+        )
+
+    with _client(evil_next) as c:
         with pytest.raises(ProviderReadError):
             c.prove_registry_digest_exists(
                 registry="eduvijna-registry", repository="aieos-backend", digest=target

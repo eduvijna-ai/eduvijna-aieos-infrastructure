@@ -65,21 +65,22 @@ def evaluate_stale_write_fence(
     read1: LiveAppSnapshot,
     read2: LiveAppSnapshot,
 ) -> FenceResult:
+    """ADR-AIEOS-049 double-read fence: updated_at hard race signal + semantic compare."""
     if read1.app_id != read2.app_id or read1.app_name != read2.app_name:
         return FenceResult.IDENTITY_CHANGED
     if read1.project_uuid != read2.project_uuid or read1.vpc_uuid != read2.vpc_uuid:
         return FenceResult.PHYSICAL_ID_CHANGED
     if read1.secret_key_set != read2.secret_key_set:
         return FenceResult.SECRET_KEY_SET_CHANGED
-    # updated_at alone can move due to provider metadata; require managed fingerprint check
-    # but if updated_at changed AND managed fingerprint (after default normalization) differs → stale
+    # Hard concurrency fence: any updated_at change between READ_1 and READ_2 fails closed.
+    # Allowed-default / ciphertext normalization apply only to semantic comparison, never
+    # to neutralize a changed updated_at race signal.
+    if read1.updated_at != read2.updated_at:
+        return FenceResult.STALE_WRITE
     fp1 = _comparable_fingerprint(read1)
     fp2 = _comparable_fingerprint(read2)
     if fp1 != fp2:
         return FenceResult.STALE_WRITE
-    if read1.updated_at != read2.updated_at and fp1 == fp2:
-        # ciphertext-only / metadata-only change with same managed fingerprint → non-blocking
-        return FenceResult.ELIGIBLE
     return FenceResult.ELIGIBLE
 
 

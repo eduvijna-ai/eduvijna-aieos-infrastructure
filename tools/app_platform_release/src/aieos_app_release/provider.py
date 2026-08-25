@@ -345,32 +345,32 @@ class DigitalOceanAppClient:
         repository: str,
         digest: str,
     ) -> bool:
-        """Paginated read-only digest list; exact sha256 match required. Never DELETE."""
+        """Paginated read-only manifests list; exact sha256 digest match. Never DELETE."""
         digest = validate_oci_digest(digest)
         if registry != "eduvijna-registry" or repository != "aieos-backend":
             raise AllowlistViolationError("registry/repository not authorized")
+        # Documented DOCR endpoint path remains .../digests; 200 collection key is "manifests".
         path_prefix = f"/v2/registries/{registry}/repositories/{repository}/digests"
         first = f"{path_prefix}?page=1&per_page=200"
-        digests = self._paginate(
+        manifests = self._paginate(
             first_path=first,
-            collection_key="digests",
+            collection_key="manifests",
             path_prefix=path_prefix,
         )
-        for entry in digests:
-            if isinstance(entry, str):
-                if entry == digest:
-                    return True
-                continue
-            if isinstance(entry, dict):
-                for key in ("digest", "manifest_digest", "sha256"):
-                    val = entry.get(key)
-                    if isinstance(val, str) and val == digest:
-                        return True
-                    if isinstance(val, str) and not val.startswith("sha256:") and key == "sha256":
-                        if f"sha256:{val}" == digest:
-                            return True
-                continue
-            raise ProviderReadError("malformed digest list entry")
+        for entry in manifests:
+            if not isinstance(entry, dict):
+                raise ProviderReadError("manifest entry must be an object")
+            if "digest" not in entry:
+                raise ProviderReadError("manifest missing digest")
+            observed = entry.get("digest")
+            if not isinstance(observed, str):
+                raise ProviderReadError("manifest digest must be string")
+            try:
+                validate_oci_digest(observed)
+            except Exception as exc:
+                raise ProviderReadError("manifest malformed digest") from exc
+            if observed == digest:
+                return True
         return False
 
     def _mutate_once(self, method: str, path: str, json_body: dict[str, Any] | None) -> MutationResult:
