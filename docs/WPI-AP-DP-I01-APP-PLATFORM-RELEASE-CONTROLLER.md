@@ -151,6 +151,10 @@ Fail-closed repairs on the same library/contracts/tests surface:
 - Paginated reads require `meta.total` completeness proof (`accumulated == meta.total`); absent next with shortfall fails closed
 - DOCR pagination accepts documented same-origin legacy next path `/v2/registry/{reg}/repositories/{repo}/digests` in addition to primary `/v2/registries/.../digests` (exact registry/repository only)
 
+## WPI-AP-DP-I01R4 corrective hardenings
+
+- Pagination next URLs may carry only `page` / `per_page` (single decimal integers; `page >= 1`; `per_page` in 1..200); unknown keys, duplicates, fragments, and userinfo fail closed
+
 ## What I01 explicitly does NOT authorize
 
 | Item | Status |

@@ -301,6 +301,107 @@ def test_app_cardinality_completeness() -> None:
             c.list_apps()
 
 
+def test_pagination_query_allowlist() -> None:
+    """Next-link query surface: only page/per_page with strict decimal integers."""
+
+    def page1_with_next(next_url: str):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.params.get("page") in (None, "1"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "apps": [{"id": "11111111-1111-4111-8111-111111111111", "spec": {"name": "a"}}],
+                        "meta": {"total": 2},
+                        "links": {"pages": {"next": next_url}},
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "apps": [{"id": "22222222-2222-4222-8222-222222222222", "spec": {"name": "b"}}],
+                    "meta": {"total": 2},
+                    "links": {"pages": {}},
+                },
+            )
+
+        return handler
+
+    # Accepted provider forms
+    for ok_next in (
+        "https://api.digitalocean.com/v2/apps?page=2",
+        "https://api.digitalocean.com/v2/apps?page=2&per_page=200",
+    ):
+        with _client(page1_with_next(ok_next)) as c:
+            assert len(c.list_apps()) == 2
+
+    # Documented singular DOCR legacy path with page/per_page
+    other = "sha256:" + ("b" * 64)
+    target = DUMMY_DIGEST
+    docr_pages = {
+        "primary": {
+            "manifests": [{"digest": other}],
+            "meta": {"total": 2},
+            "links": {
+                "pages": {
+                    "next": (
+                        "https://api.digitalocean.com/v2/registry/eduvijna-registry"
+                        "/repositories/aieos-backend/digests?page=2&per_page=200"
+                    )
+                }
+            },
+        },
+        "legacy": {
+            "manifests": [{"digest": target}],
+            "meta": {"total": 2},
+            "links": {"pages": {}},
+        },
+    }
+
+    def docr_ok(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v2/registries/"):
+            return httpx.Response(200, json=docr_pages["primary"])
+        return httpx.Response(200, json=docr_pages["legacy"])
+
+    with _client(docr_ok) as c:
+        assert c.prove_registry_digest_exists(
+            registry="eduvijna-registry", repository="aieos-backend", digest=target
+        )
+
+    reject_queries = (
+        "foo=bar",
+        "name=x",
+        "with_projects=true",
+        "deployment_types=MANUAL",
+        "page=2&foo=bar",
+        "page=2&per_page=200&extra=x",
+        "page=2&page=3",
+        "per_page=20&per_page=200",
+        "page=0",
+        "page=-1",
+        "page=abc",
+        "page=2&per_page=0",
+        "page=2&per_page=201",
+        "page=2&per_page=abc",
+    )
+    for q in reject_queries:
+        next_url = f"https://api.digitalocean.com/v2/apps?{q}"
+        with _client(page1_with_next(next_url)) as c:
+            with pytest.raises(ProviderReadError):
+                c.list_apps()
+
+    with _client(
+        page1_with_next("https://api.digitalocean.com/v2/apps?page=2#frag")
+    ) as c:
+        with pytest.raises(ProviderReadError, match="fragment"):
+            c.list_apps()
+
+    with _client(
+        page1_with_next("https://user:pass@api.digitalocean.com/v2/apps?page=2")
+    ) as c:
+        with pytest.raises(ProviderReadError, match="userinfo"):
+            c.list_apps()
+
+
 def test_oci_digest_paginated_exact_match_fail_closed() -> None:
     target = DUMMY_DIGEST
     other = "sha256:" + ("b" * 64)

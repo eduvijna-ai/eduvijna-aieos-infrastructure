@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 from uuid import UUID
 
 import httpx
@@ -24,6 +24,8 @@ API_HOST = "api.digitalocean.com"
 APP_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+_DECIMAL_INT_RE = re.compile(r"^[0-9]+$")
+_PAGINATION_QUERY_KEYS = frozenset({"page", "per_page"})
 MAX_PAGES = 100
 
 
@@ -147,6 +149,35 @@ def _parse_meta_total(data: dict[str, Any]) -> int:
     return total
 
 
+def _assert_pagination_query(query: str) -> None:
+    """Allow only page/per_page with strict single decimal-integer values."""
+    if not query:
+        return
+    pairs = parse_qsl(query, keep_blank_values=True)
+    keys = [key for key, _ in pairs]
+    for key in keys:
+        if key not in _PAGINATION_QUERY_KEYS:
+            raise ProviderReadError("pagination query parameter rejected")
+    if keys.count("page") > 1:
+        raise ProviderReadError("duplicate pagination page parameter")
+    if keys.count("per_page") > 1:
+        raise ProviderReadError("duplicate pagination per_page parameter")
+    values = dict(pairs)
+    if "page" in values:
+        raw_page = values["page"]
+        if not _DECIMAL_INT_RE.fullmatch(raw_page):
+            raise ProviderReadError("pagination page must be decimal integer")
+        if int(raw_page) < 1:
+            raise ProviderReadError("pagination page must be >= 1")
+    if "per_page" in values:
+        raw_per_page = values["per_page"]
+        if not _DECIMAL_INT_RE.fullmatch(raw_per_page):
+            raise ProviderReadError("pagination per_page must be decimal integer")
+        per_page = int(raw_per_page)
+        if per_page < 1 or per_page > 200:
+            raise ProviderReadError("pagination per_page out of range")
+
+
 def _assert_same_origin_next(
     next_url: str,
     *,
@@ -154,18 +185,23 @@ def _assert_same_origin_next(
 ) -> str:
     """Return path+query for next page; fail closed on external/malicious URLs."""
     parsed = urlparse(next_url)
+    if parsed.username is not None or parsed.password is not None:
+        raise ProviderReadError("pagination next URL userinfo rejected")
+    if parsed.fragment:
+        raise ProviderReadError("pagination next URL fragment rejected")
     if parsed.scheme == "http":
         raise ProviderReadError("pagination next URL must be HTTPS")
     if parsed.scheme not in {"https", ""}:
         raise ProviderReadError("pagination next URL scheme rejected")
-    if parsed.scheme == "https" and (not parsed.netloc or parsed.netloc != API_HOST):
+    if parsed.scheme == "https" and parsed.hostname != API_HOST:
         raise ProviderReadError("pagination next URL host rejected")
-    if parsed.netloc and parsed.netloc != API_HOST:
+    if parsed.netloc and parsed.hostname != API_HOST:
         raise ProviderReadError("pagination next URL host rejected")
     path = (parsed.path or "").rstrip("/")
     allowed = {p.rstrip("/") for p in allowed_exact_paths}
     if path not in allowed:
         raise ProviderReadError("pagination next path outside allowlist")
+    _assert_pagination_query(parsed.query)
     if parsed.query:
         return f"{path}?{parsed.query}"
     return path
