@@ -162,6 +162,18 @@ Fail-closed repairs on the same library/contracts/tests surface:
 - `with_projects` is **not** authorized on deployments or DOCR pagination (R4 `page`/`per_page` only remains)
 - CREATE reconciliation evidence path unchanged: semantic name + exact project UUID + exact VPC UUID + managed fingerprint (name alone / wrong project / missing project remain AMBIGUOUS / fail closed)
 
+## WPI-AP-DP-I01E2 empty List-Apps enumeration compatibility
+
+Live TV01 provider evidence established that DigitalOcean `GET /v2/apps` may omit the `apps` collection key when `meta.total=0` (response shape `{"meta":{"total":0}}`). This is recorded as empirically validated provider compatibility — not as a DigitalOcean documentation guarantee.
+
+The controller normalizes **only** that exact List-Apps zero-result shape to `[]` via `_paginate(..., allow_omitted_collection_when_total_zero=True)` opted in solely by `list_apps()`.
+
+- Absent `apps` + validated integer `meta.total == 0` → `[]`
+- Absent `apps` + `meta.total > 0` / missing / malformed total → provider failure
+- Present but non-list `apps` (including `null`) → provider failure (not reinterpreted as empty)
+- Deployments / DOCR digest enumeration and other `_paginate` callers remain strict (default `allow_omitted_collection_when_total_zero=False`)
+- `with_projects=true` List-Apps contract and pagination completeness proofs are unchanged
+
 ## What I01 explicitly does NOT authorize
 
 | Item | Status |
