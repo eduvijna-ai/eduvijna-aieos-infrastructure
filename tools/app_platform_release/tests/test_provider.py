@@ -580,6 +580,94 @@ def test_list_apps_first_request_with_projects() -> None:
     assert list(seen[0].params.keys()) == ["page", "per_page", "with_projects"]
 
 
+def test_list_apps_documented_zero_with_empty_array() -> None:
+    """Documented zero-App List Apps shape with explicit empty apps array."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v2/apps"
+        assert request.url.params.get("with_projects") == "true"
+        return httpx.Response(200, json={"apps": [], "meta": {"total": 0}})
+
+    with _client(handler) as c:
+        assert c.list_apps() == []
+
+
+def test_list_apps_live_observed_zero_omitted_apps_key() -> None:
+    """TV01 live evidence: DigitalOcean may omit apps when meta.total=0."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v2/apps"
+        assert request.url.params.get("with_projects") == "true"
+        return httpx.Response(200, json={"meta": {"total": 0}})
+
+    with _client(handler) as c:
+        assert c.list_apps() == []
+
+
+def test_list_apps_omitted_apps_nonzero_total_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"meta": {"total": 1}})
+
+    with _client(handler) as c:
+        with pytest.raises(ProviderReadError, match="malformed apps"):
+            c.list_apps()
+
+
+def test_list_apps_omitted_apps_negative_total_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"meta": {"total": -1}})
+
+    with _client(handler) as c:
+        with pytest.raises(ProviderReadError):
+            c.list_apps()
+
+
+def test_list_apps_omitted_apps_missing_meta_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    with _client(handler) as c:
+        with pytest.raises(ProviderReadError):
+            c.list_apps()
+
+
+def test_list_apps_omitted_apps_malformed_total_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"meta": {"total": "0"}})
+
+    with _client(handler) as c:
+        with pytest.raises(ProviderReadError):
+            c.list_apps()
+
+
+def test_list_apps_explicit_malformed_apps_fails_even_when_total_zero() -> None:
+    """PRESENT but non-list apps must not be reinterpreted as empty."""
+
+    def null_apps(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"apps": None, "meta": {"total": 0}})
+
+    def string_apps(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"apps": "not-a-list", "meta": {"total": 0}})
+
+    with _client(null_apps) as c:
+        with pytest.raises(ProviderReadError, match="malformed apps"):
+            c.list_apps()
+    with _client(string_apps) as c:
+        with pytest.raises(ProviderReadError, match="malformed apps"):
+            c.list_apps()
+
+
+def test_deployments_omitted_collection_remains_strict_when_total_zero() -> None:
+    """Non-List-Apps collections must not accept omitted keys merely because total=0."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"meta": {"total": 0}})
+
+    with _client(handler) as c:
+        with pytest.raises(ProviderReadError, match="malformed deployments"):
+            c.get_app_deployments(DUMMY_APP_ID)
+
+
 def test_oci_digest_paginated_exact_match_fail_closed() -> None:
     target = DUMMY_DIGEST
     other = "sha256:" + ("b" * 64)

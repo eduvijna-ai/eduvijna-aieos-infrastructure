@@ -372,8 +372,14 @@ class DigitalOceanAppClient:
         allowed_exact_paths: tuple[str, ...],
         allowed_query_keys: frozenset[str] = _PAGINATION_QUERY_KEYS,
         require_with_projects_true: bool = False,
+        allow_omitted_collection_when_total_zero: bool = False,
     ) -> list[Any]:
-        """Paginated GET with meta.total completeness proof. Never infers completion from absent links."""
+        """Paginated GET with meta.total completeness proof. Never infers completion from absent links.
+
+        ``allow_omitted_collection_when_total_zero`` is List-Apps-only compatibility for the
+        empirically observed DigitalOcean zero-App response that omits the ``apps`` key when
+        ``meta.total == 0``. Default remains fail-closed for all other collections.
+        """
         items: list[Any] = []
         path = first_path
         seen: set[str] = set()
@@ -383,10 +389,19 @@ class DigitalOceanAppClient:
                 raise ProviderReadError("pagination loop detected")
             seen.add(path)
             data = self._read_with_retry("GET", path)
-            page_items = data.get(collection_key)
-            if not isinstance(page_items, list):
+            # Distinguish ABSENT collection key from PRESENT null/wrong-type.
+            if collection_key in data:
+                page_items = data[collection_key]
+                if not isinstance(page_items, list):
+                    raise ProviderReadError(f"malformed {collection_key} response")
+                total = _parse_meta_total(data)
+            elif allow_omitted_collection_when_total_zero:
+                total = _parse_meta_total(data)
+                if total != 0:
+                    raise ProviderReadError(f"malformed {collection_key} response")
+                page_items = []
+            else:
                 raise ProviderReadError(f"malformed {collection_key} response")
-            total = _parse_meta_total(data)
             if expected_total is None:
                 expected_total = total
             elif total != expected_total:
@@ -441,6 +456,7 @@ class DigitalOceanAppClient:
             allowed_exact_paths=("/v2/apps",),
             allowed_query_keys=_LIST_APPS_QUERY_KEYS,
             require_with_projects_true=True,
+            allow_omitted_collection_when_total_zero=True,
         )
         if not all(isinstance(a, dict) for a in apps):
             raise ProviderReadError("malformed apps entries")
