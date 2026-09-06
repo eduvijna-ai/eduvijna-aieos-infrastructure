@@ -1,7 +1,7 @@
 # PostgreSQL Identity Bootstrap (ADR-AIEOS-045)
 
 **Status:** source-defined / **NOT RELEASED** for production execution  
-**Authority:** [ADR-AIEOS-045](https://github.com/eduvijna/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-045-aieos-dispatcher-tenant-candidate-discovery-authority.md) (Frozen / Approved)
+**Authority:** [ADR-AIEOS-045](https://github.com/eduvijna-ai/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-045-aieos-dispatcher-tenant-candidate-discovery-authority.md) (Frozen / Approved)
 
 This repository owns **PostgreSQL deployment identity administration** for ADR-AIEOS-045 candidate-reader roles. It does **not** own application schema DDL, RLS policies, queue grants, indexes, or candidate SECURITY DEFINER functions. Those belong to the Backend Alembic migration phase.
 
