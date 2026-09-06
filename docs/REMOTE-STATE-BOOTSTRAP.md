@@ -43,7 +43,7 @@ mutation occurred.
 | Production **OpenTofu control-plane state** | **SFO3** |
 
 This is a control-plane state location exception under
-[ADR-AIEOS-044R2](https://github.com/eduvijna/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-044R2-aieos-production-state-region-availability-resolution.md).
+[ADR-AIEOS-044R2](https://github.com/eduvijna-ai/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-044R2-aieos-production-state-region-availability-resolution.md).
 SFO3 state co-location with backup Spaces does **not** imply shared bucket or
 shared credentials.
 
@@ -81,7 +81,7 @@ discovered during Stage 1.
 It is **not** AIEOS production state authority. Do **not** adopt, delete,
 reassign, enable Versioning merely for AIEOS, or create AIEOS state credentials
 against it. Any later disposition requires separate Chief Architect authority
-([ADR-AIEOS-044R1](https://github.com/eduvijna/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-044R1-aieos-production-state-namespace-collision-resolution.md)).
+([ADR-AIEOS-044R1](https://github.com/eduvijna-ai/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-044R1-aieos-production-state-namespace-collision-resolution.md)).
 
 ## Superseded BLR1 planned target
 

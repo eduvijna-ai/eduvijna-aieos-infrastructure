@@ -10,8 +10,8 @@
 
 ## Architecture authority
 
-- [ADR-AIEOS-049](https://github.com/eduvijna/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-049-aieos-app-platform-state-free-deployment-plane.md) — state-free deployment-plane **behavior** (WPI-AP-DP01)
-- [ADR-AIEOS-050](https://github.com/eduvijna/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-050-aieos-app-platform-release-controller-implementation-architecture.md) — release-controller **implementation architecture** (WPI-AP-DP02 design frozen)
+- [ADR-AIEOS-049](https://github.com/eduvijna-ai/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-049-aieos-app-platform-state-free-deployment-plane.md) — state-free deployment-plane **behavior** (WPI-AP-DP01)
+- [ADR-AIEOS-050](https://github.com/eduvijna-ai/eduvijna-architecture/blob/main/decisions/ADR-AIEOS-050-aieos-app-platform-release-controller-implementation-architecture.md) — release-controller **implementation architecture** (WPI-AP-DP02 design frozen)
 
 ## Source location
 
